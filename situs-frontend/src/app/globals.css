@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================= ROOT (LIGHT SYSTEM) ================= */
+
+:root {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #6366f1;
+}
+
+/* ================= BASE ================= */
+
+body {
+  @apply antialiased;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* ================= CARD SYSTEM ================= */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+/* ================= TEXT ================= */
+
+.text-muted {
+  color: var(--muted);
+}
+
+/* ================= SCROLLBAR ================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5f5;
+  border-radius: 999px;
+}
+
+/* ================= SELECTION ================= */
+
+::selection {
+  background: rgba(99, 102, 241, 0.2);
+}

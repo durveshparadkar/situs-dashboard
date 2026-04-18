@@ -1,0 +1,16 @@
+export enum LeadStage {
+  NEW = "NEW",
+  CONTACTED = "CONTACTED",
+  SITE_VISIT = "SITE_VISIT",
+  NEGOTIATION = "NEGOTIATION",
+  CLOSED = "CLOSED",
+  LOST = "LOST",
+}
+
+export enum LeadSource {
+  FACEBOOK = "FACEBOOK",
+  WHATSAPP = "WHATSAPP",
+  MAGICBRICKS = "MAGICBRICKS",
+  REFERRAL = "REFERRAL",
+  WALKIN = "WALKIN",
+}
