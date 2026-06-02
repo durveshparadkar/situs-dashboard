@@ -1,24 +1,55 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState, ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { ArrowLeft } from "lucide-react";
+
 import {
   DndContext,
   closestCorners,
-  DragEndEvent,
-  DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
   DragOverlay,
 } from "@dnd-kit/core";
+import type { DragStartEvent, DragEndEvent } from "@dnd-kit/core";
+
 import {
   SortableContext,
   verticalListSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
+
+import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowLeft, Plus } from "lucide-react";
+
+import MetricCard from "../../../components/dashboard/metric-card";
+import DealDrawer from "../../../components/drawers/deal-drawer";
+
+import { apiFetch } from "@/lib/api";
+
+/* ================= GLOBAL UI ================= */
+
+const PageContainer = ({ children }: { children: ReactNode }) => (
+  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+);
+
+const Card = ({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={`rounded-2xl border bg-white shadow-sm p-4 ${className}`}
+  >
+    {children}
+  </motion.div>
+);
 
 /* ================= TYPES ================= */
 
@@ -28,9 +59,29 @@ type Deal = {
   _id: string;
   title?: string;
   value?: number;
-  stage?: Stage;
+  stage?: Stage;          // visual column (derived from backend stageId)
+  stageId?: string;       // backend stage ObjectId (source of truth)
   position?: number;
 };
+
+type DrawerDeal = Deal & {
+  name: string;
+  riskScore: number;
+};
+
+type BackendStage = {
+  _id: string;
+  name: string;
+  order: number;
+};
+
+type BackendPipeline = {
+  _id: string;
+  name: string;
+  stages: BackendStage[];
+};
+
+/* ================= CONSTANTS ================= */
 
 const stages: Stage[] = [
   "Leads",
@@ -40,134 +91,250 @@ const stages: Stage[] = [
   "Won",
 ];
 
-const isStage = (value: unknown): value is Stage =>
-  typeof value === "string" && stages.includes(value as Stage);
+const isStage = (v: unknown): v is Stage =>
+  typeof v === "string" && stages.includes(v as Stage);
 
-/* ================= CARD ================= */
+/* Map backend stage NAME → visual column.
+   Backend pipeline uses: DISCOVERY, QUALIFICATION, PROPOSAL_SENT,
+   NEGOTIATION, VERBAL_COMMIT, CONTRACT_SENT, WON, LOST. We fold the
+   later-funnel stages into "Negotiation" so the 5-column UI is preserved. */
+function backendStageNameToColumn(name: string): Stage {
+  const n = name.toUpperCase();
+  if (n === "DISCOVERY") return "Leads";
+  if (n === "QUALIFICATION") return "Qualified";
+  if (n === "PROPOSAL_SENT" || n === "PROPOSAL") return "Proposal";
+  if (n === "NEGOTIATION" || n === "VERBAL_COMMIT" || n === "CONTRACT_SENT")
+    return "Negotiation";
+  if (n === "WON") return "Won";
+  /* LOST and anything unknown default to Leads so deals never disappear */
+  return "Leads";
+}
 
-function DealCard({ deal }: { deal: Deal }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: deal._id });
+/* ================= AI ================= */
+
+function calculateAI(deal: Deal) {
+  const weights: Record<Stage, number> = {
+    Leads: 0.2,
+    Qualified: 0.4,
+    Proposal: 0.6,
+    Negotiation: 0.8,
+    Won: 1,
+  };
+
+  const stage = deal.stage ?? "Leads";
+
+  let probability =
+    weights[stage] * 100 +
+    Math.min((deal.value ?? 0) / 500000, 25) -
+    (deal.position ?? 0) * 2;
+
+  probability = Math.max(5, Math.min(100, probability));
+
+  return {
+    probability,
+    risk: 100 - probability,
+  };
+}
+
+/* ================= DEAL CARD ================= */
+
+function DealCard({
+  deal,
+  onClick,
+  dragOverlay = false,
+}: {
+  deal: Deal;
+  onClick?: () => void;
+  dragOverlay?: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: deal._id,
+    disabled: dragOverlay,
+  });
+
+  const { probability } = calculateAI(deal);
 
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
+    <motion.div
+      ref={dragOverlay ? undefined : setNodeRef}
+      {...(dragOverlay ? {} : attributes)}
+      {...(dragOverlay ? {} : listeners)}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.6 : 1,
+        transform: transform ? CSS.Transform.toString(transform) : undefined,
+        transition: transition || "transform 200ms ease",
+        opacity: isDragging ? 0.5 : 1,
       }}
-      className="
-        bg-white border border-slate-200 rounded-xl p-3
-        hover:shadow-md hover:-translate-y-[1px]
-        transition cursor-grab active:cursor-grabbing
-      "
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className="bg-white border rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer"
     >
-      <div className="text-sm font-semibold text-slate-800">
+      <p className="text-sm font-semibold">
         {deal.title || "Untitled"}
-      </div>
+      </p>
 
-      <div className="text-xs text-slate-500 mt-1">
-        ₹{Number(deal.value || 0).toLocaleString()}
+      <p className="text-xs text-slate-500 mt-1">
+        ₹{Number(deal.value ?? 0).toLocaleString()}
+      </p>
+
+      <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-black"
+          style={{ width: `${probability}%` }}
+        />
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 /* ================= COLUMN ================= */
 
-function Column({ stage, deals }: { stage: Stage; deals: Deal[] }) {
-  const total = deals.reduce((sum, d) => sum + (d.value || 0), 0);
+function Column({
+  stage,
+  deals,
+  onSelect,
+}: {
+  stage: Stage;
+  deals: Deal[];
+  onSelect: (d: Deal) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage });
 
   return (
-    <div className="w-[300px] min-w-[300px] flex-shrink-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-      {/* HEADER */}
-      <div className="px-4 py-3 border-b flex flex-col gap-1">
-        <div className="flex justify-between items-center">
-          <h2 className="text-sm font-semibold text-slate-700">
-            {stage}
-          </h2>
-
-          <span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full">
+    <div className="w-[300px] shrink-0">
+      <Card
+        className={`transition ${
+          isOver ? "ring-2 ring-black bg-slate-50" : ""
+        }`}
+      >
+        <div className="flex justify-between mb-3">
+          <p className="text-sm font-semibold">{stage}</p>
+          <span className="text-xs bg-black text-white px-2 rounded-full">
             {deals.length}
           </span>
         </div>
 
-        <div className="text-xs text-slate-400">
-          ₹{total.toLocaleString()}
-        </div>
-      </div>
-
-      {/* CARDS */}
-      <SortableContext
-        items={deals.map((d) => d._id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <div className="p-3 space-y-3 min-h-[140px]">
-          {deals.length === 0 ? (
-            <div className="text-xs text-center text-slate-400 py-10 border border-dashed rounded-lg">
-              No deals yet
-            </div>
-          ) : (
-            deals.map((deal) => (
-              <DealCard key={deal._id} deal={deal} />
-            ))
-          )}
-        </div>
-      </SortableContext>
+        <SortableContext
+          items={deals.map((d) => d._id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div ref={setNodeRef} className="space-y-3 min-h-[200px]">
+            {deals.length === 0 ? (
+              <div className="text-xs text-center text-slate-400 py-10 border border-dashed rounded-lg">
+                No deals yet
+              </div>
+            ) : (
+              deals.map((d) => (
+                <DealCard
+                  key={d._id}
+                  deal={d}
+                  onClick={() => onSelect(d)}
+                />
+              ))
+            )}
+          </div>
+        </SortableContext>
+      </Card>
     </div>
   );
 }
 
-/* ================= MAIN ================= */
+/* ================= PAGE ================= */
 
 export default function PipelinePage() {
+  const router = useRouter();
+
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const [open, setOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  /* Map of visual column → backend stage ObjectId, built from the
+     default pipeline. Used when a drag needs to PATCH a deal's stageId. */
+  const [columnToStageId, setColumnToStageId] = useState<Record<Stage, string>>(
+    {} as Record<Stage, string>
+  );
 
-  const [form, setForm] = useState({
-    title: "",
-    value: "",
-    stage: "Leads" as Stage,
-  });
+  /* Map of backend stageId → visual column, for grouping loaded deals. */
+ const [, setStageIdToColumn] = useState<Record<string, Stage>>(
+  {}
+);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
-  /* ================= FETCH ================= */
-
   useEffect(() => {
+    let ignore = false;
+
     const load = async () => {
       try {
-        const res = await fetch("/api/deals");
-        const json = await res.json();
+        /* 1. Fetch the default pipeline to learn real stages + their IDs */
+        const idToCol: Record<string, Stage> = {};
+const colToId: Record<Stage, string> = {} as Record<Stage, string>;
 
-        if (!json?.success) {
-          setDeals([]);
-          return;
+        try {
+          const pipeRes = await apiFetch<{ success: boolean; data: BackendPipeline }>(
+            "/api/pipelines/default"
+          );
+          const pipeline = pipeRes?.data;
+          if (pipeline?.stages?.length) {
+            for (const st of pipeline.stages) {
+              const col = backendStageNameToColumn(st.name);
+              idToCol[st._id] = col;
+              /* First stageId we see for a column wins as the drop target */
+              if (!colToId[col]) colToId[col] = st._id;
+            }
+          }
+        } catch {
+          /* No pipeline? Leave maps empty — deals fall back to Leads column */
         }
 
-        setDeals(json.data || []);
+        if (!ignore) {
+          setStageIdToColumn(idToCol);
+          setColumnToStageId(colToId);
+        }
+
+        /* 2. Fetch deals from the backend */
+        const dealRes = await apiFetch<{ success: boolean; data: Deal[] }>(
+          "/api/deals?limit=100"
+        );
+
+        const raw = Array.isArray(dealRes?.data) ? dealRes.data : [];
+
+        /* 3. Derive each deal's visual column from its backend stageId */
+        const mapped: Deal[] = raw.map((d) => {
+          const sid = (d as { stageId?: string }).stageId
+            ? String((d as { stageId?: string }).stageId)
+            : undefined;
+          const col: Stage = sid && idToCol[sid] ? idToCol[sid] : "Leads";
+          return {
+            ...d,
+            stageId: sid,
+            stage: col,
+          };
+        });
+
+        if (!ignore) setDeals(mapped);
       } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+        console.error("Failed to fetch pipeline data", err);
       }
     };
 
     load();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
-  /* ================= GROUP ================= */
-
-  const groupedDeals = useMemo(() => {
+  const grouped = useMemo(() => {
     const map: Record<Stage, Deal[]> = {
       Leads: [],
       Qualified: [],
@@ -177,8 +344,8 @@ export default function PipelinePage() {
     };
 
     deals.forEach((d) => {
-      const stage = isStage(d.stage) ? d.stage : "Leads";
-      map[stage].push(d);
+      const s = isStage(d.stage) ? d.stage : "Leads";
+      map[s].push(d);
     });
 
     stages.forEach((s) =>
@@ -188,194 +355,111 @@ export default function PipelinePage() {
     return map;
   }, [deals]);
 
-  /* ================= DRAG ================= */
+  const pipelineValue = deals.reduce((s, d) => s + (d.value || 0), 0);
+
+  const dealsAtRisk = deals.filter(
+    (d) => calculateAI(d).risk >= 70
+  ).length;
 
   const handleDragStart = (e: DragStartEvent) => {
-    const deal = deals.find((d) => d._id === e.active.id);
+    const deal = deals.find((d) => d._id === String(e.active.id));
     if (deal) setActiveDeal(deal);
   };
 
   const handleDragEnd = async (e: DragEndEvent) => {
-    const { active, over } = e;
     setActiveDeal(null);
+
+    const { active, over } = e;
     if (!over) return;
 
-    const id = String(active.id);
+    const activeId = String(active.id);
+    const overId = String(over.id);
 
-    let stage: Stage | null = null;
+    const current = deals.find((d) => d._id === activeId);
+    if (!current) return;
 
-    if (isStage(over.id)) stage = over.id;
-    else {
-      const target = deals.find((d) => d._id === over.id);
-      if (isStage(target?.stage)) stage = target.stage;
-    }
+    let newStage: Stage = current.stage ?? "Leads";
+    if (isStage(overId)) newStage = overId;
 
-    if (!stage) return;
-
-    const position = over.data?.current?.sortable?.index ?? 0;
-
-    const prev = [...deals];
-
-    setDeals((p) =>
-      p.map((d) =>
-        d._id === id ? { ...d, stage, position } : d
-      )
+    /* Optimistic UI update — move the card immediately */
+    const updated = deals.map((d) =>
+      d._id === activeId ? { ...d, stage: newStage } : d
     );
+    setDeals(updated);
+
+    /* Resolve the backend stageId for the target column. If we don't
+       have one (no pipeline loaded), skip the PATCH — UI still moved. */
+    const targetStageId = columnToStageId[newStage];
+    if (!targetStageId) return;
 
     try {
-      await fetch(`/api/deals/${id}`, {
+      await apiFetch(`/api/deals/${activeId}/stage`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage, position }),
+        body: JSON.stringify({ stage: targetStageId }),
       });
-    } catch {
-      setDeals(prev);
-    }
-  };
-
-  /* ================= CREATE ================= */
-
-  const handleCreate = async () => {
-    setErrorMsg("");
-
-    if (!form.title.trim()) {
-      setErrorMsg("Title is required");
-      return;
-    }
-
-    setCreating(true);
-
-    try {
-      const res = await fetch("/api/deals", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: form.title,
-          value: Number(form.value) || 0,
-          stage: form.stage,
-        }),
-      });
-
-      const json = await res.json();
-
-      if (!json.success) {
-        setErrorMsg(json.message || "Failed");
-        return;
-      }
-
-      setDeals((p) => [...p, json.data]);
-      setOpen(false);
-      setForm({ title: "", value: "", stage: "Leads" });
     } catch (err) {
-      console.error("CREATE DEAL ERROR:", err);
-
-      const message =
-        err instanceof Error ? err.message : "Network error";
-
-      setErrorMsg(message);
-    } finally {
-      setCreating(false);
+      console.error("Stage update failed", err);
     }
   };
 
-  /* ================= UI ================= */
-
-  if (loading) {
-    return (
-      <div className="p-10 text-center text-slate-400">
-        Loading pipeline...
-      </div>
-    );
-  }
+  const drawerDeal: DrawerDeal | null = selectedDeal
+    ? {
+        ...selectedDeal,
+        name: selectedDeal.title || "Untitled",
+        riskScore: calculateAI(selectedDeal).risk,
+      }
+    : null;
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-      <div>
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <PageContainer>
 
-        {/* HEADER */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="p-2 hover:bg-slate-100 rounded-lg">
-              <ArrowLeft size={18} />
-            </Link>
-
-            <h1 className="text-lg font-semibold text-slate-800">
-              Pipeline
-            </h1>
-          </div>
-
-          <button
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-1 bg-black text-white px-3 py-1.5 rounded-lg text-sm hover:scale-[1.03] active:scale-95 transition"
-          >
-            <Plus size={14} />
-            Add Deal
-          </button>
-        </div>
-
-        {/* BOARD */}
-        <div className="flex gap-6 overflow-x-auto pb-4 min-h-[500px]">
-          {stages.map((s) => (
-            <Column key={s} stage={s} deals={groupedDeals[s]} />
-          ))}
-        </div>
-      </div>
-
-      <DragOverlay>
-        {activeDeal && <DealCard deal={activeDeal} />}
-      </DragOverlay>
-
-      {/* MODAL */}
-      {open && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl space-y-4">
-
-            <h2 className="text-sm font-semibold text-slate-800">
-              Create Deal
-            </h2>
-
-            {errorMsg && (
-              <div className="text-xs text-red-500">
-                {errorMsg}
-              </div>
-            )}
-
-            <input
-              placeholder="Deal title"
-              value={form.title}
-              onChange={(e) =>
-                setForm({ ...form, title: e.target.value })
-              }
-              className="w-full border border-slate-200 p-2 rounded-lg text-sm"
-            />
-
-            <input
-              placeholder="Value"
-              type="number"
-              value={form.value}
-              onChange={(e) =>
-                setForm({ ...form, value: e.target.value })
-              }
-              className="w-full border border-slate-200 p-2 rounded-lg text-sm"
-            />
-
+          <div>
             <button
-              onClick={handleCreate}
-              disabled={creating}
-              className="w-full bg-black text-white py-2 rounded-lg text-sm disabled:opacity-50"
+              onClick={() => router.back()}
+              className="flex items-center gap-2 text-sm text-slate-500 hover:text-black mb-2"
             >
-              {creating ? "Creating..." : "Create Deal"}
+              <ArrowLeft size={16} /> Back
             </button>
+
+            <h1 className="text-2xl font-semibold">Pipeline</h1>
           </div>
-        </div>
-      )}
-    </DndContext>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Card><MetricCard title="Deals" value={deals.length.toString()} /></Card>
+            <Card><MetricCard title="Pipeline Value" value={`₹${pipelineValue.toLocaleString()}`} /></Card>
+            <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
+          </div>
+
+          <div className="flex gap-6 overflow-x-auto pb-2">
+            {stages.map((s) => (
+              <Column
+                key={s}
+                stage={s}
+                deals={grouped[s]}
+                onSelect={setSelectedDeal}
+              />
+            ))}
+          </div>
+
+        </PageContainer>
+
+        <DragOverlay>
+          {activeDeal && <DealCard deal={activeDeal} dragOverlay />}
+        </DragOverlay>
+      </DndContext>
+
+      <DealDrawer
+        deal={drawerDeal}
+        onClose={() => setSelectedDeal(null)}
+        onUpdate={() => setSelectedDeal(null)}
+      />
+    </>
   );
 }

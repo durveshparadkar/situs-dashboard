@@ -1,12 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import MetricCard from "../../../components/dashboard/metric-card";
 import { ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 
-/* ================= TYPES ================= */
+import { apiFetch } from "@/lib/api";
+
+const PageContainer = ({ children }: { children: ReactNode }) => (
+  <div className="min-h-screen bg-slate-50">
+    <div className="max-w-7xl mx-auto p-6 space-y-8">
+      {children}
+    </div>
+  </div>
+);
+
+const Card = ({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={`rounded-2xl border bg-white shadow-sm p-5 ${className}`}
+  >
+    {children}
+  </motion.div>
+);
 
 type Summary = {
   totalRevenue: number;
@@ -20,7 +44,6 @@ type Prediction = {
   priority: "high" | "medium" | "low";
   impactScore: number;
   label: string;
-  color: "red" | "yellow" | "green";
 };
 
 type FunnelStage = {
@@ -37,21 +60,17 @@ type AnalyticsData = {
   funnelStages: FunnelStage[];
   revenueTrend: { month: string; revenue: number }[];
   insights: string[];
-  predictions: Prediction[];
   topActions: Prediction[];
 };
 
-type ApiResponse = {
-  success: boolean;
-  data: AnalyticsData;
+const formatMoney = (v?: number) => `₹${(v ?? 0).toLocaleString()}`;
+
+const EMPTY_SUMMARY: Summary = {
+  totalRevenue: 0,
+  revenueAtRisk: 0,
+  avgConversion: 0,
+  totalDeals: 0,
 };
-
-/* ================= HELPERS ================= */
-
-const formatMoney = (v?: number) =>
-  `₹${(v ?? 0).toLocaleString()}`;
-
-/* ================= COMPONENT ================= */
 
 export default function AnalyticsPage() {
   const router = useRouter();
@@ -62,24 +81,32 @@ export default function AnalyticsPage() {
   const [insightIndex, setInsightIndex] = useState(0);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
-  /* ================= FETCH ================= */
-
   useEffect(() => {
     const load = async () => {
       try {
-        setLoading(true);
-        const res = await fetch("/api/analytics");
+        const json = await apiFetch<{ success: boolean; data: AnalyticsData }>(
+          "/api/analytics"
+        );
 
-        const json: ApiResponse = await res.json();
-
-        if (!json.success) {
-          throw new Error("API failed");
+        if (!json?.success || !json?.data) {
+          throw new Error("Invalid API");
         }
 
-        setData(json.data);
+        const d = json.data;
+        setData({
+          summary: d.summary ?? EMPTY_SUMMARY,
+          funnelStages: Array.isArray(d.funnelStages) ? d.funnelStages : [],
+          revenueTrend: Array.isArray(d.revenueTrend) ? d.revenueTrend : [],
+          insights: Array.isArray(d.insights) ? d.insights : [],
+          topActions: Array.isArray(d.topActions) ? d.topActions : [],
+        });
       } catch (err) {
         console.error(err);
-        setError("Failed to load analytics");
+        setError(
+          err instanceof Error && err.message.includes("Analytics requires")
+            ? err.message
+            : "Failed to load analytics"
+        );
       } finally {
         setLoading(false);
       }
@@ -88,223 +115,153 @@ export default function AnalyticsPage() {
     load();
   }, []);
 
-  /* ================= ROTATING INSIGHT ================= */
-
   useEffect(() => {
     if (!data?.insights?.length) return;
 
-    const i = setInterval(() => {
+    const interval = setInterval(() => {
       setInsightIndex((p) => (p + 1) % data.insights.length);
     }, 4000);
 
-    return () => clearInterval(i);
-  }, [data]);
+    return () => clearInterval(interval);
+  }, [data?.insights]);
 
-  /* ================= SAFE DERIVED ================= */
+  const revenueTrend = useMemo(() => data?.revenueTrend ?? [], [data]);
+  const funnelStages = useMemo(() => data?.funnelStages ?? [], [data]);
+  const topActions = useMemo(() => data?.topActions ?? [], [data]);
 
   const maxRevenue = useMemo(() => {
-    if (!data?.revenueTrend?.length) return 1;
-    return Math.max(...data.revenueTrend.map((r) => r.revenue || 0), 1);
-  }, [data]);
+    if (!revenueTrend.length) return 1;
+    return Math.max(...revenueTrend.map((r) => r.revenue || 0), 1);
+  }, [revenueTrend]);
 
-  const biggestRisk = data?.topActions?.[0];
-  const biggestOpportunity = data?.topActions?.find(
-    (a) => a.priority === "low"
-  );
+  const biggestRisk = topActions[0] || null;
+  const biggestOpportunity =
+    topActions.find((a) => a.priority === "low") || null;
 
-  /* ================= STATES ================= */
+  if (loading)
+    return <div className="p-6 text-slate-400">Loading analytics...</div>;
 
-  if (loading) {
-    return (
-      <div className="p-10 text-slate-500 animate-pulse">
-        Loading analytics...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-10 text-red-500">
-        {error}
-      </div>
-    );
-  }
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
 
   if (!data) return null;
 
-  if (data.summary.totalDeals === 0 && !data.revenueTrend.length) {
-    return (
-      <div className="p-10 text-slate-500">
-        No data available yet.
-      </div>
-    );
-  }
-
-  /* ================= UI ================= */
-
   return (
-    <div className="bg-slate-50 min-h-screen">
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="max-w-7xl mx-auto px-8 py-10 space-y-10"
-      >
-
-        {/* HEADER */}
-        <header>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"
-          >
-            <ArrowLeft size={16} />
-            Back
-          </motion.button>
-
-          <h1 className="text-3xl font-semibold mt-2">
-            Revenue Analytics
-          </h1>
-
-          <p className="text-sm text-slate-500 mt-1">
-            Clear visibility into growth, risk, and opportunity.
-          </p>
-        </header>
-
-        {/* AI INSIGHT */}
-        <motion.section
-          key={insightIndex}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative bg-linear-to-r from-black to-slate-800 text-white rounded-2xl p-6 shadow-lg overflow-hidden"
+    <PageContainer>
+      <div>
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="flex items-center gap-2 text-sm text-slate-500 hover:text-black mb-2"
         >
-          <motion.div
-            className="absolute inset-0 bg-white/10"
-            animate={{ opacity: [0, 0.2, 0] }}
-            transition={{ duration: 3, repeat: Infinity }}
-          />
+          <ArrowLeft size={16} />
+          Back
+        </button>
 
-          <p className="text-xs uppercase text-slate-300 font-semibold">
-            AI SUMMARY
+        <h1 className="text-2xl font-semibold">Revenue Analytics</h1>
+
+        <p className="text-sm text-slate-500">
+          AI-driven insights across your pipeline
+        </p>
+      </div>
+
+      <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
+        <h2 className="text-4xl font-bold">
+          {formatMoney(data.summary.totalRevenue)}
+        </h2>
+
+        <p className="text-white/70 mt-2">
+          Total Revenue • Conversion {data.summary.avgConversion}%
+        </p>
+
+        <p className="text-sm text-white/60 mt-3">
+          {data.insights?.[insightIndex] || "No insights"}
+        </p>
+      </Card>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <Card><MetricCard title="Revenue" value={formatMoney(data.summary.totalRevenue)} /></Card>
+        <Card><MetricCard title="At Risk" value={formatMoney(data.summary.revenueAtRisk)} /></Card>
+        <Card><MetricCard title="Conversion" value={`${data.summary.avgConversion}%`} /></Card>
+        <Card><MetricCard title="Deals" value={`${data.summary.totalDeals}`} /></Card>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <Card>
+          <p className="text-xs text-red-500 font-semibold">RISK</p>
+          <p className="mt-2 font-medium">
+            {biggestRisk?.message || "No major risk"}
           </p>
+        </Card>
 
-          <h3 className="text-xl font-semibold mt-2">
-            {data.insights?.[insightIndex] || "No insights available"}
-          </h3>
-
-          <p className="text-sm text-slate-300 mt-1">
-            Biggest risk: {biggestRisk?.message || "None detected"}
+        <Card>
+          <p className="text-xs text-emerald-500 font-semibold">OPPORTUNITY</p>
+          <p className="mt-2 font-medium">
+            {biggestOpportunity?.message || "No strong opportunity"}
           </p>
-        </motion.section>
+        </Card>
+      </div>
 
-        {/* METRICS */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {[
-            ["Revenue", formatMoney(data.summary?.totalRevenue)],
-            ["At Risk", formatMoney(data.summary?.revenueAtRisk)],
-            ["Conversion", `${data.summary?.avgConversion ?? 0}%`],
-            ["Deals", `${data.summary?.totalDeals ?? 0}`],
-          ].map(([title, value], i) => (
-            <motion.div
-              key={title}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              whileHover={{ y: -2 }}
-            >
-              <MetricCard title={title} value={value} />
-            </motion.div>
-          ))}
-        </section>
+      <Card>
+        <h3 className="text-sm font-semibold mb-4">Revenue Trend</h3>
 
-        {/* RISK VS OPPORTUNITY */}
-        <section className="grid md:grid-cols-2 gap-6">
-          <motion.div className="bg-white border rounded-2xl p-6 shadow-sm">
-            <p className="text-xs text-red-600 font-semibold">RISK</p>
-            <h3 className="mt-2 font-semibold">
-              {biggestRisk?.message || "No major risk"}
-            </h3>
-          </motion.div>
+        <div className="flex items-end gap-3 h-44">
+          {revenueTrend.map((r, i) => {
+            const height = (r.revenue / maxRevenue) * 100;
 
-          <motion.div className="bg-white border rounded-2xl p-6 shadow-sm">
-            <p className="text-xs text-emerald-600 font-semibold">
-              OPPORTUNITY
-            </p>
-            <h3 className="mt-2 font-semibold">
-              {biggestOpportunity?.message || "No strong opportunity"}
-            </h3>
-          </motion.div>
-        </section>
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center">
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  className={`w-full rounded ${
+                    hoveredBar === i ? "bg-black" : "bg-slate-400"
+                  }`}
+                  onMouseEnter={() => setHoveredBar(i)}
+                  onMouseLeave={() => setHoveredBar(null)}
+                />
 
-        {/* REVENUE TREND */}
-        <section className="bg-white border rounded-2xl p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">
-            Revenue Trend
-          </h3>
-
-          <div className="flex items-end gap-3 h-40">
-            {data.revenueTrend.map((r, i) => (
-              <motion.div
-                key={i}
-                initial={{ height: 0 }}
-                animate={{
-                  height: `${(r.revenue / maxRevenue) * 100}%`,
-                }}
-                onMouseEnter={() => setHoveredBar(i)}
-                onMouseLeave={() => setHoveredBar(null)}
-                className={`flex-1 rounded ${
-                  hoveredBar === i ? "bg-black" : "bg-slate-400"
-                }`}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* PRIORITY ACTIONS */}
-        <section className="grid md:grid-cols-3 gap-6">
-          {data.topActions.map((p, i) => (
-            <motion.div
-              key={i}
-              className="p-6 rounded-2xl border bg-white shadow-sm"
-            >
-              <span className="text-xs">{p.label}</span>
-              <p className="mt-3 font-medium">{p.message}</p>
-            </motion.div>
-          ))}
-        </section>
-
-        {/* FUNNEL */}
-        <section className="bg-white border rounded-2xl p-6 shadow-sm">
-          <div className="space-y-4">
-            {data.funnelStages.map((stage) => (
-              <div key={stage.id}>
-                <div className="flex justify-between text-sm">
-                  <span>{stage.name}</span>
-                  <span>
-                    {stage.conversion
-                      ? `${stage.conversion.toFixed(1)}%`
-                      : "-"}
-                  </span>
-                </div>
-
-                <div className="h-2 bg-slate-100 rounded mt-1">
-                  <div
-                    style={{
-                      width: `${Math.min(stage.deals * 5, 100)}%`,
-                    }}
-                    className="h-full bg-black"
-                  />
-                </div>
-
-                <p className="text-xs text-slate-500 mt-1">
-                  {formatMoney(stage.totalValue)} • {stage.avgDays} days
-                </p>
+                <span className="text-[10px] mt-1 text-slate-500">
+                  {r.month}
+                </span>
               </div>
-            ))}
-          </div>
-        </section>
+            );
+          })}
+        </div>
+      </Card>
 
-      </motion.div>
-    </div>
+      <div className="grid md:grid-cols-3 gap-6">
+        {topActions.map((a, i) => (
+          <Card key={i}>
+            <p className="text-xs text-slate-500">{a.label}</p>
+            <p className="mt-2 text-sm font-medium">{a.message}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <h3 className="text-sm font-semibold mb-4">Funnel</h3>
+
+        {funnelStages.map((stage) => (
+          <div key={stage.id} className="mb-4">
+            <div className="flex justify-between text-sm">
+              <span>{stage.name}</span>
+              <span>
+                {stage.conversion !== null ? `${stage.conversion}%` : "-"}
+              </span>
+            </div>
+
+            <div className="h-2 bg-slate-100 rounded mt-1">
+              <div
+                className="h-full bg-black"
+                style={{ width: `${Math.min(stage.deals * 5, 100)}%` }}
+              />
+            </div>
+
+            <p className="text-xs text-slate-500 mt-1">
+              {formatMoney(stage.totalValue)} • {stage.avgDays} days
+            </p>
+          </div>
+        ))}
+      </Card>
+    </PageContainer>
   );
 }

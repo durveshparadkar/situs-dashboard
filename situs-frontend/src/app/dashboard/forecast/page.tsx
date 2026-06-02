@@ -7,6 +7,8 @@ import RevenueChart from "../../../components/forecast/revenue-chart";
 import RiskInsight from "../../../components/forecast/risk-insight";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
+import { apiFetch } from "@/lib/api";
+
 /* ================= TYPES ================= */
 
 type ApiDeal = {
@@ -17,439 +19,305 @@ type ApiDeal = {
   owner?: string;
 };
 
-type ForecastApiResponse = {
-  success: boolean;
-  data: {
-    deals: ApiDeal[];
-    summary: {
-      weightedForecast: number;
-      totalPipelineValue: number;
-    };
-  };
-};
-
 type ForecastDeal = {
   id: string;
   name: string;
   owner: string;
   value: number;
-  probability: number;
-  stage: "Qualified" | "Proposal" | "Negotiation";
-  risk: "Low" | "Medium" | "High";
+  baseProbability: number;
+  aiProbability: number;
   weighted: number;
+  score: number;
+  explanation: string[];
+  risk: "Low" | "Medium" | "High";
+};
+
+/* Backend deal shape (subset we read from /api/deals) */
+type BackendDeal = {
+  _id: string;
+  title: string;
+  value: number;
+  probability?: number;
+  assignedTo?: string;
+  ownerId?: string;
+  owner?: string;
 };
 
 /* ================= HELPERS ================= */
 
-function getRisk(prob: number) {
-  if (prob >= 70) return "Low";
-  if (prob >= 40) return "Medium";
-  return "High";
+const formatMoney = (v: number) => `₹${v.toLocaleString()}`;
+
+const getRisk = (p: number): ForecastDeal["risk"] =>
+  p >= 75 ? "Low" : p >= 45 ? "Medium" : "High";
+
+/* ================= AI ================= */
+
+function calculateAI(base: number, value: number, max: number) {
+  const weight = max ? value / max : 0;
+
+  const aiProb = Math.min(
+    95,
+    Math.max(5, Math.round(base * 0.6 + weight * 100 * 0.4))
+  );
+
+  const explanation: string[] = [];
+
+  if (weight > 0.7) explanation.push("High value deal boosts forecast");
+  if (weight < 0.3) explanation.push("Low value reduces impact");
+  if (aiProb > base) explanation.push("AI increased probability");
+  if (aiProb < base) explanation.push("AI reduced probability");
+
+  return { aiProb, explanation };
 }
 
-function getStage(prob: number) {
-  if (prob >= 70) return "Negotiation";
-  if (prob >= 40) return "Proposal";
-  return "Qualified";
-}
+const score = (p: number, v: number, max: number) =>
+  Math.round(p * 0.7 + (max ? (v / max) * 100 : 0) * 0.3);
 
-/* ================= UI ================= */
+/* ================= GLOBAL UI ================= */
 
-function SurfaceCard({
+const PageContainer = ({ children }: { children: ReactNode }) => (
+  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+);
+
+const PageHeader = ({
+  onBack,
+  title,
+}: {
+  onBack: () => void;
+  title?: string;
+}) => (
+  <div className="flex justify-between items-center">
+    <button
+      onClick={onBack}
+      className="flex items-center gap-2 text-sm text-slate-500 hover:text-black"
+    >
+      <ArrowLeft size={16} />
+      Back
+    </button>
+
+    {title && <h1 className="text-lg font-semibold">{title}</h1>}
+  </div>
+);
+
+const Card = ({
   children,
   className = "",
-  style,
 }: {
   children: ReactNode;
   className?: string;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -4 }}
-      className={`rounded-3xl border border-slate-200 p-6 shadow-sm ${className}`}
-      style={style}
-    >
-      {children}
-    </motion.div>
-  );
-}
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    whileHover={{ y: -3 }}
+    className={`rounded-2xl border bg-white shadow-sm p-5 transition ${className}`}
+  >
+    {children}
+  </motion.div>
+);
 
 /* ================= PAGE ================= */
 
 export default function ForecastPage() {
   const router = useRouter();
 
-  const [data, setData] = useState<ForecastApiResponse["data"] | null>(null);
+  const [deals, setRawDeals] = useState<ApiDeal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // ✅ NEW: selected deal
-  const [selectedDeal, setSelectedDeal] = useState<ForecastDeal | null>(null);
-
-  const [form, setForm] = useState({
-    title: "",
-    value: "",
-    probability: "",
-  });
+  const [selected, setSelected] = useState<ForecastDeal | null>(null);
 
   useEffect(() => {
-    fetch("/api/forecast")
-      .then((r) => r.json())
-      .then((json) => setData(json.data))
-      .finally(() => setLoading(false));
+    const load = async () => {
+      try {
+        /* Forecast math runs client-side off the deal list.
+           Source the deals from the migrated backend deals API. */
+        const res = await apiFetch<{ success: boolean; data: BackendDeal[] }>(
+          "/api/deals?limit=100"
+        );
+
+        const raw = Array.isArray(res?.data) ? res.data : [];
+
+        /* Normalize backend deal → the ApiDeal shape this page expects */
+        const normalized: ApiDeal[] = raw.map((d) => ({
+          _id:         d._id,
+          title:       d.title,
+          value:       d.value,
+          probability: d.probability,
+          owner:       d.owner || d.assignedTo || d.ownerId || "User",
+        }));
+
+        setRawDeals(normalized);
+      } catch (err) {
+        console.error("Failed to load forecast deals", err);
+        setRawDeals([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  /* ================= DATA ================= */
+  const forecastDeals: ForecastDeal[] = useMemo(() => {
+    if (!deals.length) return [];
 
-  const deals: ForecastDeal[] = useMemo(() => {
-    if (!data?.deals) return [];
+    const max = Math.max(...deals.map((d) => d.value || 0), 1);
 
-    return data.deals.map((d) => {
-      const prob = d.probability ?? 50;
+    return deals
+      .map((d) => {
+        const base = d.probability ?? 50;
 
-      return {
-        id: d._id,
-        name: d.title,
-        owner: d.owner || "User",
-        value: d.value,
-        probability: prob,
-        stage: getStage(prob),
-        risk: getRisk(prob),
-        weighted: Math.round((d.value * prob) / 100),
-      };
-    });
-  }, [data]);
+        const { aiProb, explanation } = calculateAI(base, d.value, max);
 
-  const expected = data?.summary?.weightedForecast ?? 0;
-  const pipeline = data?.summary?.totalPipelineValue ?? 0;
+        return {
+          id: d._id,
+          name: d.title || "Untitled",
+          owner: d.owner || "User",
+          value: d.value || 0,
+          baseProbability: base,
+          aiProbability: aiProb,
+          weighted: Math.round((d.value * aiProb) / 100),
+          score: score(aiProb, d.value, max),
+          explanation,
+          risk: getRisk(aiProb),
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+  }, [deals]);
 
-  const confidence =
-    deals.length > 0
-      ? Math.round(
-          deals.reduce((s, d) => s + d.probability, 0) / deals.length
-        )
-      : 0;
+  const expected = forecastDeals.reduce((s, d) => s + d.weighted, 0);
+  const pipeline = forecastDeals.reduce((s, d) => s + d.value, 0);
+  const confidence = forecastDeals.length
+    ? Math.round(
+        forecastDeals.reduce((s, d) => s + d.aiProbability, 0) /
+          forecastDeals.length
+      )
+    : 0;
 
-  const riskDeals = deals.filter((d) => d.risk === "High").length;
+  const riskDeals = forecastDeals.filter((d) => d.risk === "High").length;
 
-  const topDeals = [...deals]
-    .sort((a, b) => b.weighted - a.weighted)
-    .slice(0, 3);
-
-  /* ================= AI ================= */
-
-  const aiInsight = useMemo(() => {
-    if (deals.length === 0) return "No forecast data available.";
-
-    return `Revenue is projected from ${deals.length} deals. Strong momentum from ${topDeals.map(d => d.name).join(", ")}. ${riskDeals} deals may impact results.`;
-  }, [deals, topDeals, riskDeals]);
-
-  /* ================= ACTIONS ================= */
-
-  const topActions = useMemo(() => {
-    if (deals.length === 0) return [];
-
-    const actions = [];
-
-    const weakBigDeals = deals.filter(d => d.value > 30000 && d.probability < 50);
-    if (weakBigDeals.length > 0) {
-      actions.push({
-        title: "Improve high-value deals",
-        desc: weakBigDeals.slice(0,2).map(d => d.name).join(", "),
-      });
-    }
-
-    const closingDeals = deals.filter(d => d.probability >= 70);
-    if (closingDeals.length > 0) {
-      actions.push({
-        title: "Close near-win deals",
-        desc: closingDeals.slice(0,2).map(d => d.name).join(", "),
-      });
-    }
-
-    if (riskDeals > 0) {
-      actions.push({
-        title: "Reduce risk",
-        desc: `${riskDeals} deals are high risk`,
-      });
-    }
-
-    return actions.slice(0,3);
-  }, [deals, riskDeals]);
-
-  const chartData = deals.slice(0,5).map((d, i) => ({
-    name: `Deal ${i+1}`,
+  const chartData = forecastDeals.slice(0, 5).map((d) => ({
+    name: d.name,
     value: d.weighted,
   }));
 
-  if (loading) return <div className="p-6">Loading forecast...</div>;
+  const insights = [
+    `${riskDeals} high-risk deals`,
+    `Confidence ${confidence}%`,
+    forecastDeals[0] ? `${forecastDeals[0].name} drives revenue` : "",
+  ];
 
-  /* ================= UI ================= */
+  if (loading) return <div className="p-6">Loading...</div>;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-10 px-6 py-6">
+    <PageContainer>
 
-      {/* HEADER */}
-      <header className="space-y-4">
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"
-        >
-          <ArrowLeft size={16} /> Back
-        </button>
-
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-semibold">Forecast</h1>
-            <p className="text-sm text-slate-500">
-              Predict and optimize your revenue
-            </p>
-          </div>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm"
-          >
-            + Add Deal
-          </button>
-        </div>
-      </header>
+      <PageHeader onBack={() => router.push("/dashboard")} />
 
       {/* HERO */}
-      <SurfaceCard
-        className="text-white border-none shadow-lg"
-        style={{
-          background: "linear-gradient(to bottom right, #0f172a, #1e293b)",
-        }}
-      >
-        <div className="flex justify-between">
+      <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
+        <h1 className="text-4xl font-bold">{formatMoney(expected)}</h1>
+
+        <p className="text-white/70 mt-2">
+          AI Forecast • Confidence {confidence}%
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
           <div>
-            <p className="text-sm opacity-70">Projected Revenue</p>
-            <h2 className="text-4xl font-bold mt-2">
-              ₹{expected.toLocaleString()}
-            </h2>
-
-            <p className="text-sm mt-4 opacity-80 max-w-xl">
-              {aiInsight}
-            </p>
+            <p className="text-white/60">Pipeline</p>
+            <p>{formatMoney(pipeline)}</p>
           </div>
-
-          <div className="text-right text-sm opacity-80">
-            <p>Pipeline: ₹{pipeline.toLocaleString()}</p>
-            <p className="mt-2">Confidence: {confidence}%</p>
+          <div>
+            <p className="text-white/60">Deals</p>
+            <p>{forecastDeals.length}</p>
+          </div>
+          <div>
+            <p className="text-white/60">High Risk</p>
+            <p className="text-red-400">{riskDeals}</p>
+          </div>
+          <div>
+            <p className="text-white/60">Confidence</p>
+            <p>{confidence}%</p>
           </div>
         </div>
-      </SurfaceCard>
+      </Card>
 
-      {/* ACTIONS */}
-      {topActions.length > 0 && (
-        <section className="grid md:grid-cols-3 gap-4">
-          {topActions.map((a, i) => (
-            <SurfaceCard key={i} className="bg-white">
-              <p className="text-sm font-medium">{a.title}</p>
-              <p className="text-xs text-slate-500 mt-1">{a.desc}</p>
-            </SurfaceCard>
-          ))}
-        </section>
-      )}
+      {/* AI INSIGHTS */}
+      <Card>
+        <h3 className="font-semibold mb-2">AI Insights</h3>
+        <div className="text-sm text-slate-600 space-y-1">
+          {insights.map((i, idx) => i && <p key={idx}>• {i}</p>)}
+        </div>
+      </Card>
 
       {/* CHART + RISK */}
-      <section className="grid xl:grid-cols-2 gap-6">
-        <SurfaceCard className="bg-white">
+      <div className="grid xl:grid-cols-2 gap-6">
+        <Card>
           <RevenueChart data={chartData} />
-        </SurfaceCard>
+        </Card>
 
-        <SurfaceCard className="bg-white">
-          <p className="text-xs uppercase text-slate-500 mb-4">
-            Risk Overview
-          </p>
-          <RiskInsight deals={deals} />
-          <p className="text-sm text-red-500 mt-4">
-            {riskDeals} deals at risk
-          </p>
-        </SurfaceCard>
-      </section>
+        <Card>
+          <RiskInsight deals={forecastDeals} />
+        </Card>
+      </div>
 
-      {/* DEALS */}
-      <section className="grid xl:grid-cols-2 gap-6">
-        {deals.map((d) => (
-          <SurfaceCard key={d.id} className="bg-white">
-
+      {/* DEAL LIST */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {forecastDeals.map((d) => (
+          <Card key={d.id}>
             <div className="flex justify-between">
               <div>
-                <h3 className="font-semibold">{d.name}</h3>
-                <p className="text-sm text-slate-500">{d.owner}</p>
+                <p className="font-semibold">{d.name}</p>
+                <p className="text-xs text-slate-500">{d.owner}</p>
               </div>
 
-              <div className="flex gap-2">
-
-                {/* ✅ FIXED */}
-                <button
-                  onClick={() => setSelectedDeal(d)}
-                  className="p-1 hover:bg-slate-100 rounded"
-                >
-                  <ArrowRight size={14} />
-                </button>
-
-                <button
-                  onClick={async () => {
-                    await fetch("/api/deals", {
-                      method: "DELETE",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ id: d.id }),
-                    });
-
-                    setData((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            deals: prev.deals.filter(
-                              (deal) => deal._id !== d.id
-                            ),
-                          }
-                        : prev
-                    );
-                  }}
-                  className="text-red-500 text-xs"
-                >
-                  ✕
-                </button>
-
-              </div>
+              <button onClick={() => setSelected(d)}>
+                <ArrowRight size={16} />
+              </button>
             </div>
 
-            <p className="mt-4 text-lg font-semibold">
-              ₹{d.value.toLocaleString()}
-            </p>
+            <p className="mt-3 font-semibold">{formatMoney(d.value)}</p>
 
-            <p className="text-sm text-slate-500">
-              {d.probability}%
-            </p>
-
-            <div className="mt-3 h-2 bg-slate-100 rounded-full">
+            <div className="mt-2 h-2 bg-slate-100 rounded-full">
               <div
-                className="h-full bg-slate-900"
-                style={{ width: `${d.probability}%` }}
+                className="h-full bg-black rounded-full"
+                style={{ width: `${d.aiProbability}%` }}
               />
             </div>
 
-          </SurfaceCard>
+            <p className="text-xs mt-1 text-slate-500">
+              AI {d.aiProbability}% • Score {d.score}
+            </p>
+          </Card>
         ))}
-      </section>
+      </div>
 
-      {/* ✅ DEAL DETAILS MODAL */}
+      {/* MODAL */}
       <AnimatePresence>
-        {selectedDeal && (
+        {selected && (
           <motion.div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-            onClick={() => setSelectedDeal(null)}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center"
+            onClick={() => setSelected(null)}
           >
-            <div
-              className="bg-white p-6 rounded-2xl w-96"
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              className="bg-white p-6 rounded-xl w-96"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="font-semibold text-lg">Deal Details</h2>
+              <h2 className="font-semibold text-lg">{selected.name}</h2>
 
-              <p className="mt-4 font-medium">{selectedDeal.name}</p>
-              <p className="text-sm text-slate-500">{selectedDeal.owner}</p>
+              <p className="mt-2">{formatMoney(selected.value)}</p>
 
-              <p className="mt-3">
-                ₹{selectedDeal.value.toLocaleString()}
-              </p>
-
-              <p className="text-sm mt-1">
-                {selectedDeal.probability}% probability
-              </p>
-
-              <button
-                onClick={() => setSelectedDeal(null)}
-                className="w-full mt-4 bg-slate-900 text-white py-2 rounded-xl"
-              >
-                Close
-              </button>
-            </div>
+              <div className="mt-3 text-sm text-slate-600 space-y-1">
+                {selected.explanation.map((e, i) => (
+                  <p key={i}>• {e}</p>
+                ))}
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ADD MODAL (UNCHANGED) */}
-      <AnimatePresence>
-        {showAddModal && (
-          <motion.div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-            onClick={() => setShowAddModal(false)}
-          >
-            <div
-              className="bg-white p-6 rounded-2xl w-96"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 className="font-semibold text-lg">Add Deal</h2>
-
-              <input
-                placeholder="Title"
-                className="w-full border rounded-xl px-3 py-2 mt-4"
-                value={form.title}
-                onChange={(e) =>
-                  setForm({ ...form, title: e.target.value })
-                }
-              />
-
-              <input
-                type="number"
-                placeholder="Value"
-                className="w-full border rounded-xl px-3 py-2 mt-3"
-                value={form.value}
-                onChange={(e) =>
-                  setForm({ ...form, value: e.target.value })
-                }
-              />
-
-              <input
-                type="number"
-                placeholder="Probability %"
-                className="w-full border rounded-xl px-3 py-2 mt-3"
-                value={form.probability}
-                onChange={(e) =>
-                  setForm({ ...form, probability: e.target.value })
-                }
-              />
-
-              <button
-                onClick={async () => {
-                  const res = await fetch("/api/deals", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      title: form.title,
-                      value: Number(form.value),
-                      probability: Number(form.probability),
-                      owner: "You",
-                    }),
-                  });
-
-                  const result = await res.json();
-
-                  setData((prev) =>
-                    prev
-                      ? { ...prev, deals: [...prev.deals, result.data] }
-                      : prev
-                  );
-
-                  setShowAddModal(false);
-                  setForm({ title: "", value: "", probability: "" });
-                }}
-                className="w-full bg-slate-900 text-white py-2 rounded-xl mt-4"
-              >
-                Create Deal
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-    </div>
+    </PageContainer>
   );
 }

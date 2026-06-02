@@ -11,13 +11,45 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 
-/* ---------------- TYPES ---------------- */
+/* ================= GLOBAL UI ================= */
+
+const PageContainer = ({ children }: { children: React.ReactNode }) => (
+  <div className="min-h-screen bg-slate-50">
+    <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
+      {children}
+    </div>
+  </div>
+);
+
+const Card = ({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 6 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="rounded-2xl border bg-white shadow-sm p-5"
+  >
+    <div className="flex items-center gap-2 mb-4">
+      <div className="p-2 bg-slate-100 rounded-lg">{icon}</div>
+      <p className="text-sm font-semibold">{title}</p>
+    </div>
+
+    {children}
+  </motion.div>
+);
+
+/* ================= TYPES ================= */
 
 type AISettings = {
   sensitivity: "Conservative" | "Balanced" | "Aggressive";
-  frequency: "Real-time" | "Hourly" | "Daily";
-  mode: "Assistive" | "Directive";
 };
 
 type AlertSettings = {
@@ -32,80 +64,13 @@ type Stage = {
   conversion: number;
 };
 
-/* ---------------- REUSABLE COMPONENTS ---------------- */
-
-function Section({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="border-b border-slate-200 pb-3">
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        <p className="text-sm text-slate-500">{subtitle}</p>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </section>
-  );
-}
-
-function Card({
-  icon,
-  title,
-  description,
-  children,
-  right,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children?: React.ReactNode;
-  right?: React.ReactNode;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
-    >
-      <div className="flex flex-col gap-5 xl:flex-row xl:justify-between">
-        <div className="flex flex-1 gap-3">
-          <div className="rounded-xl bg-slate-50 p-2.5">{icon}</div>
-
-          <div className="flex-1 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{title}</p>
-              <p className="text-sm text-slate-500">{description}</p>
-            </div>
-
-            {children}
-          </div>
-        </div>
-
-        {right && (
-          <div className="xl:w-64 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            {right}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/* ---------------- MAIN PAGE ---------------- */
+/* ================= PAGE ================= */
 
 export default function SettingsPage() {
   const router = useRouter();
 
   const [ai, setAI] = useState<AISettings>({
     sensitivity: "Balanced",
-    frequency: "Real-time",
-    mode: "Assistive",
   });
 
   const [alerts, setAlerts] = useState<AlertSettings>({
@@ -121,190 +86,182 @@ export default function SettingsPage() {
     { name: "Negotiation", days: 12, conversion: 45 },
   ]);
 
+  const [saving, setSaving] = useState(false);
+
+  /* ================= SAVE ================= */
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      await new Promise((r) => setTimeout(r, 800));
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* ================= UI ================= */
+
   return (
-    <div className="mx-auto max-w-7xl space-y-10 px-6 py-6">
+    <PageContainer>
+
       {/* HEADER */}
-      <header className="space-y-2">
+      <div className="flex justify-between items-start">
+        <div>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-2 text-sm text-slate-500 hover:text-black mb-2"
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+
+          <h1 className="text-3xl font-semibold">Settings</h1>
+          <p className="text-sm text-slate-500">
+            Configure your revenue system
+          </p>
+        </div>
+
         <button
-          onClick={() => router.push("/dashboard")}
-          className="flex items-center gap-2 text-sm text-slate-500 transition hover:text-slate-900"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-2 bg-black text-white rounded-lg text-sm"
         >
-          <ArrowLeft size={16} />
-          Back to Dashboard
+          {saving ? "Saving..." : "Save"}
         </button>
-
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Settings
-        </h1>
-
-        <p className="text-sm text-slate-500">
-          Configure how your revenue system behaves and makes decisions.
-        </p>
-      </header>
+      </div>
 
       {/* PROFILE */}
-      <Section
-        title="Profile & Business Context"
-        subtitle="Used by the system to personalize insights and forecasting."
-      >
-        <Card
-          icon={<User size={18} />}
-          title="Profile Identity"
-          description="Basic account and business context."
-          right={
-            <>
-              <p className="text-xs uppercase text-slate-400">
-                System Impact
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                Improves AI accuracy and personalization.
-              </p>
-            </>
-          }
-        >
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <input className="input" placeholder="Full Name" />
-            <input className="input" placeholder="Email" />
-            <input className="input" placeholder="Company" />
-            <input className="input" placeholder="Role" />
-          </div>
-        </Card>
-      </Section>
+      <Card title="Profile" icon={<User size={16} />}>
+        <div className="grid md:grid-cols-2 gap-4">
+          <Input placeholder="Full Name" />
+          <Input placeholder="Email" />
+          <Input placeholder="Company" />
+          <Input placeholder="Role" />
+        </div>
+      </Card>
 
       {/* AI */}
-      <Section
-        title="AI Intelligence"
-        subtitle="Control how the system detects risk and generates insights."
-      >
-        <Card
-          icon={<Brain size={18} />}
-          title="AI Behavior"
-          description="Tune how aggressive and responsive the system is."
-          right={
-            <p className="text-sm text-slate-600">
-              More aggressive = earlier signals but more noise.
-            </p>
-          }
-        >
-          <div className="flex flex-wrap gap-2">
-            {(["Conservative", "Balanced", "Aggressive"] as const).map(
-              (opt) => (
-                <button
-                  key={opt}
-                  onClick={() =>
-                    setAI((prev) => ({ ...prev, sensitivity: opt }))
-                  }
-                  className={`rounded-md border px-3 py-1.5 text-xs ${
-                    ai.sensitivity === opt
-                      ? "bg-slate-900 text-white"
-                      : "hover:bg-slate-100"
-                  }`}
-                >
-                  {opt}
-                </button>
-              )
-            )}
-          </div>
-        </Card>
-      </Section>
-
-      {/* ALERTS */}
-      <Section
-        title="Alerts & Notifications"
-        subtitle="Choose what signals should interrupt your workflow."
-      >
-        <Card
-          icon={<Bell size={18} />}
-          title="Alert Types"
-          description="Enable or disable alert categories."
-          right={<p className="text-sm text-slate-600">Reduces noise.</p>}
-        >
-          {(Object.entries(alerts) as [keyof AlertSettings, boolean][]).map(
-            ([key, val]) => (
-              <div
-                key={key}
-                className="flex items-center justify-between text-sm"
+      <Card title="AI Intelligence" icon={<Brain size={16} />}>
+        <div className="flex gap-2">
+          {(["Conservative", "Balanced", "Aggressive"] as const).map(
+            (opt) => (
+              <button
+                key={opt}
+                onClick={() =>
+                  setAI((p) => ({ ...p, sensitivity: opt }))
+                }
+                className={`px-3 py-2 rounded-lg text-sm border ${
+                  ai.sensitivity === opt
+                    ? "bg-black text-white"
+                    : "hover:bg-slate-100"
+                }`}
               >
-                <span className="capitalize">{key}</span>
-
-                <button
-                  onClick={() =>
-                    setAlerts((prev) => ({
-                      ...prev,
-                      [key]: !val,
-                    }))
-                  }
-                  className={`h-5 w-10 rounded-full ${
-                    val ? "bg-slate-900" : "bg-slate-300"
-                  }`}
-                />
-              </div>
+                {opt}
+              </button>
             )
           )}
-        </Card>
-      </Section>
+        </div>
+      </Card>
+
+      {/* ALERTS */}
+      <Card title="Alerts" icon={<Bell size={16} />}>
+        {Object.entries(alerts).map(([key, val]) => (
+          <div
+            key={key}
+            className="flex justify-between items-center py-2"
+          >
+            <span className="capitalize text-sm">{key}</span>
+
+            <Toggle
+              enabled={val}
+              onChange={() =>
+                setAlerts((p) => ({
+                  ...p,
+                  [key]: !val,
+                }))
+              }
+            />
+          </div>
+        ))}
+      </Card>
 
       {/* PIPELINE */}
-      <Section
-        title="Pipeline Configuration"
-        subtitle="Define how deals move through your revenue system."
-      >
-        {stages.map((stage, index) => (
-          <Card
-            key={stage.name}
-            icon={<Workflow size={18} />}
-            title={stage.name}
-            description="Configure expected behavior in this stage."
-            right={
-              <>
-                <p className="text-xs uppercase text-slate-400">Impact</p>
-                <p className="text-sm text-slate-700">
-                  Affects forecasting & risk scoring
-                </p>
-              </>
-            }
-          >
-            <div className="flex gap-3">
-              <input
-                value={stage.days}
-                onChange={(e) => {
-                  const updated = [...stages];
-                  updated[index].days = Number(e.target.value);
-                  setStages(updated);
+      <Card title="Pipeline" icon={<Workflow size={16} />}>
+        {stages.map((stage, i) => (
+          <div key={stage.name} className="mb-4">
+            <p className="text-sm font-medium">{stage.name}</p>
+
+            <div className="flex gap-3 mt-2">
+              <Input
+                value={String(stage.days)}
+                onChange={(v) => {
+                  const copy = [...stages];
+                  copy[i].days = Number(v);
+                  setStages(copy);
                 }}
-                className="input w-24"
               />
 
-              <input
-                value={stage.conversion}
-                onChange={(e) => {
-                  const updated = [...stages];
-                  updated[index].conversion = Number(e.target.value);
-                  setStages(updated);
+              <Input
+                value={String(stage.conversion)}
+                onChange={(v) => {
+                  const copy = [...stages];
+                  copy[i].conversion = Number(v);
+                  setStages(copy);
                 }}
-                className="input w-24"
               />
             </div>
-          </Card>
+          </div>
         ))}
-      </Section>
+      </Card>
 
       {/* SYSTEM */}
-      <Section
-        title="System Control"
-        subtitle="Control access and system-level behavior."
-      >
-        <Card
-          icon={<ShieldCheck size={18} />}
-          title="Permissions"
-          description="Manage access and control settings."
-          right={<p className="text-sm text-slate-600">Admin only</p>}
-        >
-          <button className="rounded-lg border border-slate-200 px-3 py-2 text-sm transition hover:bg-slate-50">
-            Manage Access
-          </button>
-        </Card>
-      </Section>
-    </div>
+      <Card title="System" icon={<ShieldCheck size={16} />}>
+        <button className="px-3 py-2 border rounded-lg text-sm hover:bg-slate-50">
+          Manage Access
+        </button>
+      </Card>
+
+    </PageContainer>
+  );
+}
+
+/* ================= UI ================= */
+
+function Input({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value?: string;
+  onChange?: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+    />
+  );
+}
+
+function Toggle({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      onClick={onChange}
+      className={`w-10 h-5 rounded-full transition ${
+        enabled ? "bg-black" : "bg-slate-300"
+      }`}
+    />
   );
 }

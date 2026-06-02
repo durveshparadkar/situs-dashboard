@@ -35,9 +35,11 @@ export type RevenueAlert = {
   action: string;
   detail: string;
 
-  // 🔥 NEW (navigation support)
   entityType?: "deal" | "lead";
   entityId?: string;
+
+  // 🔥 NEW CORE
+  riskScore: number;
 };
 
 /* ================= HELPERS ================= */
@@ -47,13 +49,48 @@ function hoursAgo(date: string) {
 }
 
 function formatCurrency(value: number) {
-  return `\\$${(value / 1000).toFixed(0)}K`;
+  return `₹${(value / 1000).toFixed(0)}K`;
 }
 
 function formatTime(hours: number) {
   if (hours < 1) return "just now";
   if (hours < 24) return `${Math.floor(hours)}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+/* ================= AI SCORING ================= */
+
+function computeRiskScore({
+  severity,
+  impact,
+  hours,
+  probability,
+}: {
+  severity: AlertSeverity;
+  impact: number;
+  hours?: number;
+  probability?: number;
+}) {
+  let score = 0;
+
+  // severity weight
+  if (severity === "critical") score += 70;
+  if (severity === "watch") score += 40;
+  if (severity === "opportunity") score += 30;
+
+  // revenue weight
+  score += Math.min(impact / 1000, 30);
+
+  // time decay / urgency
+  if (hours) score += Math.min(hours, 30);
+
+  // deal probability signal
+  if (probability !== undefined) {
+    if (probability < 40) score += 20; // risk
+    if (probability > 80) score += 15; // opportunity boost
+  }
+
+  return Math.round(score);
 }
 
 /* ================= ENGINE ================= */
@@ -78,32 +115,35 @@ export function generateAlerts(
     const age = hoursAgo(lead.createdAt);
     const value = lead.value || 0;
 
+    // 🔥 cold lead
     if (lead.status === "new" && age > 18) {
+      const severity = age > 36 ? "critical" : "watch";
+
       push({
-        id: `lead-${lead._id}-followup`,
-        title: "Follow-up Needed",
-        message: `${lead.name} waiting ${Math.floor(age)}h`,
+        id: `lead-${lead._id}-cold`,
+        title: "Lead Going Cold",
+        message: `${lead.name} inactive ${Math.floor(age)}h`,
         company: lead.company,
-        severity: age > 36 ? "critical" : "watch",
+        severity,
         status: "new",
         impact: value,
-        impactLabel: "Lead getting cold",
-        owner: "Unassigned",
+        impactLabel: "Conversion risk",
+        owner: "Sales",
         detectedAt: formatTime(age),
-        action: "Contact now",
+        action: "Contact immediately",
         detail: "Delay reduces conversion probability.",
-
-        // 🔥 NEW
         entityType: "lead",
         entityId: lead._id,
+        riskScore: computeRiskScore({ severity, impact: value, hours: age }),
       });
     }
 
+    // 🔥 high intent lead
     if (lead.status === "qualified") {
       push({
         id: `lead-${lead._id}-qualified`,
-        title: "Ready to Convert",
-        message: `${lead.name} is highly engaged`,
+        title: "High Intent Lead",
+        message: `${lead.name} ready to convert`,
         company: lead.company,
         severity: "opportunity",
         status: "new",
@@ -113,13 +153,16 @@ export function generateAlerts(
         detectedAt: "now",
         action: "Create deal",
         detail: "Strong buying signals detected.",
-
-        // 🔥 NEW
         entityType: "lead",
         entityId: lead._id,
+        riskScore: computeRiskScore({
+          severity: "opportunity",
+          impact: value || 15000,
+        }),
       });
     }
 
+    // 🔥 high value lead
     if (value > 80000 && lead.status !== "converted") {
       push({
         id: `lead-${lead._id}-high`,
@@ -134,10 +177,12 @@ export function generateAlerts(
         detectedAt: "now",
         action: "Prioritize",
         detail: "Focus here for max ROI.",
-
-        // 🔥 NEW
         entityType: "lead",
         entityId: lead._id,
+        riskScore: computeRiskScore({
+          severity: "opportunity",
+          impact: value,
+        }),
       });
     }
   });
@@ -147,48 +192,59 @@ export function generateAlerts(
   deals.forEach((deal) => {
     const inactive = hoursAgo(deal.updatedAt);
 
+    // 🔥 deal going cold
     if (deal.value > 50000 && inactive > 48) {
+      const severity = inactive > 96 ? "critical" : "watch";
+
       push({
-        id: `deal-${deal._id}-inactive`,
+        id: `deal-${deal._id}-cold`,
         title: "Deal Going Cold",
         message: `${deal.title} inactive ${Math.floor(inactive)}h`,
         company: deal.title,
-        severity: inactive > 96 ? "critical" : "watch",
+        severity,
         status: "new",
         impact: deal.value,
         impactLabel: `${formatCurrency(deal.value)} at risk`,
         owner: "Sales",
         detectedAt: formatTime(inactive),
-        action: "Follow up",
-        detail: "Momentum lost — re-engage.",
-
-        // 🔥 NEW
+        action: "Re-engage",
+        detail: "Momentum lost — act now.",
         entityType: "deal",
         entityId: deal._id,
+        riskScore: computeRiskScore({
+          severity,
+          impact: deal.value,
+          hours: inactive,
+        }),
       });
     }
 
+    // 🔥 high value risk
     if (deal.value > 100000 && deal.probability < 40) {
       push({
         id: `deal-${deal._id}-risk`,
-        title: "High Value Risk",
-        message: `${deal.title} unlikely to close`,
+        title: "High Value at Risk",
+        message: `${deal.title} may not close`,
         company: deal.title,
         severity: "critical",
         status: "new",
         impact: deal.value,
-        impactLabel: "Low confidence",
+        impactLabel: "Low probability",
         owner: "Sales",
         detectedAt: "now",
-        action: "Rework strategy",
-        detail: "Needs intervention.",
-
-        // 🔥 NEW
+        action: "Fix strategy",
+        detail: "Urgent intervention needed.",
         entityType: "deal",
         entityId: deal._id,
+        riskScore: computeRiskScore({
+          severity: "critical",
+          impact: deal.value,
+          probability: deal.probability,
+        }),
       });
     }
 
+    // 🔥 stuck deal
     if (inactive > 72) {
       push({
         id: `deal-${deal._id}-stuck`,
@@ -201,20 +257,24 @@ export function generateAlerts(
         impactLabel: "Pipeline slowdown",
         owner: "Sales",
         detectedAt: formatTime(inactive),
-        action: "Push forward",
-        detail: "Investigate blockers.",
-
-        // 🔥 NEW
+        action: "Investigate",
+        detail: "Likely internal blocker.",
         entityType: "deal",
         entityId: deal._id,
+        riskScore: computeRiskScore({
+          severity: "watch",
+          impact: deal.value,
+          hours: inactive,
+        }),
       });
     }
 
+    // 🔥 closing opportunity
     if (deal.probability > 80 && deal.value > 20000) {
       push({
         id: `deal-${deal._id}-hot`,
-        title: "Closing Opportunity",
-        message: `${deal.title} almost won`,
+        title: "Closing Soon",
+        message: `${deal.title} near conversion`,
         company: deal.title,
         severity: "opportunity",
         status: "new",
@@ -223,11 +283,14 @@ export function generateAlerts(
         owner: "Sales",
         detectedAt: "now",
         action: "Close deal",
-        detail: "Push to finish.",
-
-        // 🔥 NEW
+        detail: "Push to finish line.",
         entityType: "deal",
         entityId: deal._id,
+        riskScore: computeRiskScore({
+          severity: "opportunity",
+          impact: deal.value,
+          probability: deal.probability,
+        }),
       });
     }
   });
@@ -239,8 +302,8 @@ export function generateAlerts(
   if (pipeline < 500000 && deals.length > 0) {
     push({
       id: "pipeline-low",
-      title: "Pipeline Weak",
-      message: "Not enough deals in pipeline",
+      title: "Weak Pipeline",
+      message: "Pipeline coverage is low",
       company: "Pipeline",
       severity: "watch",
       status: "new",
@@ -248,27 +311,18 @@ export function generateAlerts(
       impactLabel: `${formatCurrency(pipeline)} total`,
       owner: "Revenue Ops",
       detectedAt: "now",
-      action: "Add deals",
-      detail: "Future revenue at risk.",
-
-      // 🔥 OPTIONAL (no specific entity)
-      entityType: "deal",
+      action: "Generate pipeline",
+      detail: "Future revenue risk.",
+      riskScore: computeRiskScore({
+        severity: "watch",
+        impact: pipeline,
+      }),
     });
   }
 
-  /* ================= SORT ================= */
-
-  const severityRank = {
-    critical: 3,
-    watch: 2,
-    opportunity: 1,
-  };
+  /* ================= FINAL SORT ================= */
 
   return alerts
-    .sort((a, b) => {
-      const s = severityRank[b.severity] - severityRank[a.severity];
-      if (s !== 0) return s;
-      return b.impact - a.impact;
-    })
-    .slice(0, 10);
+    .sort((a, b) => b.riskScore - a.riskScore) // 🔥 AI priority
+    .slice(0, 15);
 }

@@ -2,16 +2,38 @@ import mongoose from "mongoose";
 
 const LeadSchema = new mongoose.Schema(
   {
-    name: String,
-    email: String,
-    company: String,
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      trim: true,
+    },
+
+    company: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    /* 🔥 CRITICAL FIX */
+    value: {
+      type: Number,
+      default: 0,
+    },
+
     status: {
       type: String,
       enum: ["new", "contacted", "qualified", "converted"],
       default: "new",
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
 export default mongoose.models.Lead ||

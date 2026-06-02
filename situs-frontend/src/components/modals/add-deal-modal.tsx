@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 // 🔥 Proper typing (no any, no warning)
 type Props = {
@@ -23,19 +24,14 @@ export default function AddDealModal({
     setLoading(true);
 
     try {
-      const res = await fetch("/api/deals", {
+      const json = await apiFetch<{ success: boolean; data: unknown }>("/api/deals", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           title,
           value: Number(value),
           probability: Number(probability),
         }),
       });
-
-      const json = await res.json();
 
       if (json.success) {
         onCreatedAction(json.data);

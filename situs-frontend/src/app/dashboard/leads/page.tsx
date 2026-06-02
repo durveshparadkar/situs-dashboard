@@ -1,42 +1,99 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import MetricCard from "../../../components/dashboard/metric-card";
-import LeadDrawer from "../../../components/drawers/lead-drawer";
-import { ArrowLeft } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as m } from "framer-motion";
+import { ArrowLeft, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 
-/* ================= TYPES ================= */
+import MetricCard from "../../../components/dashboard/metric-card";
+import LeadDrawer from "../../../components/drawers/lead-drawer";
+import { apiFetch } from "@/lib/api";
 
-type Lead = {
+const PageContainer = ({ children }: { children: ReactNode }) => (
+  <div className="min-h-screen bg-slate-50">
+    <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+  </div>
+);
+
+const Card = ({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
+  <m.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={`rounded-xl border bg-white shadow-sm p-5 ${className}`}
+  >
+    {children}
+  </m.div>
+);
+
+export type Lead = {
   _id: string;
   name: string;
-  email?: string;
-  company: string;
-  value?: number;
-  status: "new" | "contacted" | "qualified" | "converted";
+  email?: string | null;
+  phone: string;
+  interestedLocation: string;
+  budget: number;
+  source: string;
+  probability?: number;
+  leadScore?: number;
+  brainPriority?: "low" | "medium" | "high" | "critical";
   createdAt: string;
 };
 
-/* ================= HELPERS ================= */
+type LeadsResponse = {
+  data: Lead[];
+  total?: number;
+};
 
-function getProbabilityFromStatus(status: string) {
-  if (status === "new") return 30;
-  if (status === "contacted") return 50;
-  if (status === "qualified") return 70;
-  return 40;
+function money(value: number) {
+  return `Rs. ${value.toLocaleString("en-IN")}`;
 }
 
-function getStatusStyle(status: Lead["status"]) {
-  if (status === "qualified") return "bg-emerald-50 text-emerald-700";
-  if (status === "contacted") return "bg-amber-50 text-amber-700";
-  if (status === "converted") return "bg-blue-50 text-blue-700";
-  return "bg-slate-100 text-slate-600";
+function normalizeLead(input: Partial<Lead>): Lead {
+  return {
+    _id: String(input._id ?? ""),
+    name: typeof input.name === "string" ? input.name : "",
+    email: typeof input.email === "string" ? input.email : "",
+    phone: typeof input.phone === "string" ? input.phone : "",
+    interestedLocation:
+      typeof input.interestedLocation === "string"
+        ? input.interestedLocation
+        : "",
+    budget:
+      typeof input.budget === "number" ? input.budget : Number(input.budget) || 0,
+    source: typeof input.source === "string" ? input.source : "MANUAL_ENTRY",
+    probability:
+      typeof input.probability === "number" ? input.probability : undefined,
+    leadScore: typeof input.leadScore === "number" ? input.leadScore : undefined,
+    brainPriority:
+      input.brainPriority === "critical" ||
+      input.brainPriority === "high" ||
+      input.brainPriority === "medium" ||
+      input.brainPriority === "low"
+        ? input.brainPriority
+        : "low",
+    createdAt:
+      typeof input.createdAt === "string"
+        ? input.createdAt
+        : new Date().toISOString(),
+  };
 }
 
-/* ================= PAGE ================= */
+function getPriorityBadge(priority?: Lead["brainPriority"]) {
+  if (priority === "critical" || priority === "high") {
+    return "bg-red-50 text-red-700 border-red-200";
+  }
+  if (priority === "medium") {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+  return "bg-slate-100 text-slate-600 border-slate-200";
+}
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -44,310 +101,200 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [sortHigh, setSortHigh] = useState(true);
 
-  const [isAddOpen, setIsAddOpen] = useState(false);
-
-  const [form, setForm] = useState({
-    name: "",
-    company: "",
-    value: "",
-  });
-
-  /* ================= FETCH ================= */
-
-  async function fetchLeads() {
+  const fetchLeads = useCallback(async () => {
     try {
-      const res = await fetch("/api/leads");
-      const json = await res.json();
-
-      if (json.success) {
-        setLeads(json.data);
-      }
+      setLoading(true);
+      const res = await apiFetch<LeadsResponse>("/api/leads?limit=100");
+      setLeads(Array.isArray(res?.data) ? res.data.map(normalizeLead) : []);
     } catch (err) {
       console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to load leads");
+      setLeads([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     fetchLeads();
-  }, []);
+  }, [fetchLeads]);
 
-  /* ================= FILTER ================= */
+  const processedLeads = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const data = q
+      ? leads.filter(
+          (lead) =>
+            lead.name.toLowerCase().includes(q) ||
+            lead.phone.toLowerCase().includes(q) ||
+            lead.interestedLocation.toLowerCase().includes(q) ||
+            (lead.email || "").toLowerCase().includes(q)
+        )
+      : [...leads];
 
-  const activeLeads = useMemo(() => {
-    return leads.filter((l) => l.status !== "converted");
-  }, [leads]);
+    data.sort((a, b) => (sortHigh ? b.budget - a.budget : a.budget - b.budget));
+    return data;
+  }, [leads, search, sortHigh]);
 
-  /* ================= METRICS ================= */
-
-  const total = activeLeads.length;
-  const qualified = activeLeads.filter((l) => l.status === "qualified").length;
-  const pipelineValue = activeLeads.reduce(
-    (t, l) => t + (l.value || 0),
-    0
+  const metrics = useMemo(
+    () => ({
+      total: processedLeads.length,
+      qualified: processedLeads.filter((lead) => (lead.probability ?? 0) >= 50)
+        .length,
+      pipeline: processedLeads.reduce((sum, lead) => sum + lead.budget, 0),
+    }),
+    [processedLeads]
   );
 
   if (loading) {
-    return <div className="p-6 text-sm text-slate-500">Loading leads...</div>;
+    return (
+      <div className="max-w-7xl mx-auto p-6 animate-pulse space-y-6">
+        <div className="h-10 w-60 bg-slate-200 rounded" />
+        <div className="h-64 bg-slate-200 rounded-xl" />
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-10">
-
-      {/* HEADER */}
-      <header className="space-y-4">
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"
-        >
-          <ArrowLeft size={16} />
-          Back to Dashboard
-        </button>
-
-        <div className="flex justify-between items-center">
+    <>
+      <PageContainer>
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
           <div>
-            <h1 className="text-3xl font-semibold text-slate-900">Leads</h1>
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 text-sm text-slate-500 mb-2"
+            >
+              <ArrowLeft size={16} /> Back
+            </button>
+            <h1 className="text-2xl font-semibold">Leads</h1>
             <p className="text-sm text-slate-500">
-              Manage incoming opportunities
+              Track potential customers from first touch to qualification
             </p>
           </div>
 
           <button
-            onClick={() => setIsAddOpen(true)}
-            className="bg-black text-white px-4 py-2 rounded-lg hover:scale-[1.02] transition"
+            onClick={() =>
+              setSelectedLead(
+                normalizeLead({
+                  _id: "",
+                  name: "",
+                  phone: "",
+                  interestedLocation: "",
+                  budget: 0,
+                  source: "MANUAL_ENTRY",
+                })
+              )
+            }
+            className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm"
           >
-            + Add Lead
+            <Plus size={16} />
+            Add Lead
           </button>
         </div>
-      </header>
 
-      {/* METRICS */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <MetricCard title="Total Leads" value={total.toString()} />
-        <MetricCard title="Qualified" value={qualified.toString()} />
-        <MetricCard
-          title="Pipeline Value"
-          value={`₹${pipelineValue.toLocaleString()}`}
-        />
-      </div>
+        <Card className="bg-slate-950 text-white border-none">
+          <h2 className="text-3xl font-bold">{money(metrics.pipeline)}</h2>
+          <p className="text-white/70 mt-2">
+            Pipeline value - {metrics.total} leads
+          </p>
+        </Card>
 
-      {/* LIST */}
-      <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <Card>
+            <MetricCard title="Total Leads" value={metrics.total.toString()} />
+          </Card>
+          <Card>
+            <MetricCard title="Qualified" value={metrics.qualified.toString()} />
+          </Card>
+          <Card>
+            <MetricCard title="Pipeline Value" value={money(metrics.pipeline)} />
+          </Card>
+        </div>
 
-        {activeLeads.length === 0 ? (
-          <div className="text-center py-20 border rounded-xl bg-white">
-            <p className="text-sm text-slate-500 mb-3">
-              No leads yet
-            </p>
-
+        <Card>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              placeholder="Search leads..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+            />
             <button
-              onClick={() => setIsAddOpen(true)}
-              className="text-sm bg-black text-white px-4 py-2 rounded-md"
+              onClick={() => setSortHigh((current) => !current)}
+              className="px-4 py-2 border rounded-lg text-sm"
             >
-              Add your first lead
+              {sortHigh ? "High to Low" : "Low to High"}
             </button>
           </div>
-        ) : (
-          activeLeads.map((lead, index) => (
-            <motion.div
-              key={lead._id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.04 }}
-              className="border rounded-xl p-5 bg-white hover:shadow-md transition"
-            >
-              <div className="flex justify-between">
+        </Card>
 
-                <div>
-                  <p className="font-semibold">{lead.name}</p>
-                  <p className="text-sm text-slate-500">{lead.company}</p>
+        <Card className="p-0 overflow-hidden">
+          {processedLeads.length === 0 ? (
+            <div className="text-center py-20 text-slate-500 text-sm">
+              No leads found
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="text-left text-slate-500 bg-slate-50">
+                  <tr>
+                    <th className="p-4">Name</th>
+                    <th>Phone</th>
+                    <th>Location</th>
+                    <th>Budget</th>
+                    <th>Priority</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {processedLeads.map((lead) => (
+                    <tr
+                      key={lead._id}
+                      className="border-t hover:bg-slate-50 cursor-pointer"
+                      onClick={() => setSelectedLead(lead)}
+                    >
+                      <td className="p-4 font-medium">{lead.name || "Untitled"}</td>
+                      <td>{lead.phone || "-"}</td>
+                      <td>{lead.interestedLocation || "-"}</td>
+                      <td>{money(lead.budget)}</td>
+                      <td>
+                        <span
+                          className={`px-2 py-1 text-xs rounded-full border ${getPriorityBadge(
+                            lead.brainPriority
+                          )}`}
+                        >
+                          {lead.brainPriority ?? "low"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </PageContainer>
 
-                  <span
-                    className={`text-xs px-2 py-1 rounded ${getStatusStyle(
-                      lead.status
-                    )}`}
-                  >
-                    {lead.status}
-                  </span>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-lg font-semibold">
-                    ₹{(lead.value || 0).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              {/* ACTIONS */}
-              <div className="flex justify-end gap-3 mt-4">
-
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch("/api/deals", {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          title: lead.name,
-                          value: lead.value || 0,
-                          probability: getProbabilityFromStatus(lead.status),
-                          owner: "You",
-                        }),
-                      });
-
-                      if (res.ok) {
-                        await fetch("/api/leads", {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                          body: JSON.stringify({
-                            id: lead._id,
-                            status: "converted",
-                          }),
-                        });
-
-                        setLeads((prev) =>
-                          prev.map((l) =>
-                            l._id === lead._id
-                              ? { ...l, status: "converted" }
-                              : l
-                          )
-                        );
-
-                        toast.success("Converted to deal 🚀");
-                      }
-                    } catch (err) {
-                      console.error(err);
-                      toast.error("Conversion failed");
-                    }
-                  }}
-                  className="text-sm bg-black text-white px-3 py-1 rounded"
-                >
-                  Convert
-                </button>
-
-                <button
-                  onClick={() => setSelectedLead(lead)}
-                  className="text-sm border px-3 py-1 rounded"
-                >
-                  View
-                </button>
-              </div>
-
-            </motion.div>
-          ))
-        )}
-      </div>
-
-      {/* ADD LEAD MODAL */}
-      <AnimatePresence>
-        {isAddOpen && (
-          <motion.div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="bg-white rounded-xl p-6 w-96"
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-            >
-              <h2 className="text-lg font-semibold mb-4">Add Lead</h2>
-
-              <input
-                placeholder="Name"
-                value={form.name}
-                onChange={(e) =>
-                  setForm({ ...form, name: e.target.value })
-                }
-                className="w-full border p-2 rounded mb-3"
-              />
-
-              <input
-                placeholder="Company"
-                value={form.company}
-                onChange={(e) =>
-                  setForm({ ...form, company: e.target.value })
-                }
-                className="w-full border p-2 rounded mb-3"
-              />
-
-              <input
-                placeholder="Value"
-                type="number"
-                value={form.value}
-                onChange={(e) =>
-                  setForm({ ...form, value: e.target.value })
-                }
-                className="w-full border p-2 rounded mb-3"
-              />
-
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setIsAddOpen(false)}
-                  className="px-3 py-1 border rounded"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  onClick={async () => {
-                    if (!form.name || !form.company) {
-                      toast.error("Fill required fields");
-                      return;
-                    }
-
-                    try {
-                      const res = await fetch("/api/leads", {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          name: form.name,
-                          company: form.company,
-                          value: Number(form.value) || 0,
-                        }),
-                      });
-
-                      const result = await res.json();
-
-                      if (result.success) {
-                        setLeads((prev) => [result.data, ...prev]);
-                        setForm({ name: "", company: "", value: "" });
-                        setIsAddOpen(false);
-                        toast.success("Lead created 🚀");
-                      }
-                    } catch (err) {
-                      console.error(err);
-                      toast.error("Error creating lead");
-                    }
-                  }}
-                  className="bg-black text-white px-3 py-1 rounded"
-                >
-                  Create
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* DRAWER */}
       <LeadDrawer
         lead={selectedLead}
         onClose={() => {
           setSelectedLead(null);
-          fetchLeads(); // 🔥 refresh after edit
+          fetchLeads();
+        }}
+        onUpdate={(lead) => {
+          const clean = normalizeLead(lead);
+          if (!clean._id) return;
+
+          setLeads((current) =>
+            current.some((existing) => existing._id === clean._id)
+              ? current.map((existing) =>
+                  existing._id === clean._id ? clean : existing
+                )
+              : [clean, ...current]
+          );
         }}
       />
-    </div>
+    </>
   );
 }

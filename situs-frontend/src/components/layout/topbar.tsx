@@ -1,122 +1,186 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Search, Bell, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 
 import { generateAlerts, RevenueAlert } from "../../lib/alert-engine";
 
+/* ================= PAGE TITLES ================= */
+
+const pageTitles: Record<string, string> = {
+  "/dashboard": "Dashboard",
+  "/dashboard/deals": "Deals",
+  "/dashboard/pipeline": "Pipeline",
+  "/dashboard/leads": "Leads",
+  "/dashboard/alerts": "Alerts",
+  "/dashboard/analytics": "Analytics",
+  "/dashboard/forecast": "Forecast",
+  "/dashboard/settings": "Settings",
+};
+
 export default function Topbar() {
-  const [open, setOpen] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+
+  const [open, setOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const [search, setSearch] = useState("");
+
+  /* ================= AUTH ================= */
+
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      const hasToken =
+        typeof document !== "undefined" &&
+        document.cookie.includes("token=");
+      setIsLoggedIn(hasToken);
+    });
+  }, []);
+
+  /* ================= DATA ================= */
 
   const leads = [
-    { _id: "1", name: "Rahul Sharma", company: "TechCorp", value: 120000, status: "new" as const, createdAt: "2026-03-25" },
+    {
+      _id: "1",
+      name: "Rahul Sharma",
+      company: "TechCorp",
+      value: 120000,
+      status: "new" as const,
+      createdAt: "2026-03-25",
+    },
   ];
 
   const deals = [
-    { _id: "1", title: "Enterprise SaaS Deal", value: 150000, probability: 30, stage: "negotiation", updatedAt: "2026-03-20" },
+    {
+      _id: "1",
+      title: "Enterprise SaaS Deal",
+      value: 150000,
+      probability: 30,
+      stage: "negotiation",
+      updatedAt: "2026-03-20",
+    },
   ];
 
-  const [alerts, setAlerts] = useState<RevenueAlert[]>(() => generateAlerts(leads, deals));
+  const [alerts, setAlerts] = useState<RevenueAlert[]>(() =>
+    generateAlerts(leads, deals)
+  );
 
-  const unreadCount = alerts.filter((a) => a.status === "new").length;
+  const unreadCount = useMemo(
+    () => alerts.filter((a) => a.status === "new").length,
+    [alerts]
+  );
+
+  const pageTitle =
+    Object.keys(pageTitles).find((p) =>
+      pathname.startsWith(p)
+    ) || "/dashboard";
+
+  /* ================= ALERT ACTIONS ================= */
 
   const markAsRead = (id: string) => {
-    setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, status: "resolved" } : a));
+    setAlerts((prev) =>
+      prev.map((a) =>
+        a.id === id ? { ...a, status: "resolved" } : a
+      )
+    );
   };
 
   const clearAll = () => {
-    setAlerts((prev) => prev.map((a) => ({ ...a, status: "resolved" })));
+    setAlerts((prev) =>
+      prev.map((a) => ({ ...a, status: "resolved" }))
+    );
     toast.success("All alerts cleared");
   };
 
   const handleAlertClick = (alert: RevenueAlert) => {
     markAsRead(alert.id);
+
     if (alert.entityId && alert.entityType) {
-      router.push(`/dashboard/${alert.entityType}s?highlight=${alert.entityId}`);
+      router.push(
+        `/dashboard/${alert.entityType}s?highlight=${alert.entityId}`
+      );
       setOpen(false);
-    } else {
-      toast("No linked item for this alert");
     }
   };
 
+  /* ================= LOGOUT ================= */
+
+  const handleLogout = () => {
+    document.cookie = "token=; Max-Age=0; path=/";
+    localStorage.removeItem("token");
+
+    toast.success("Logged out");
+    router.push("/login");
+  };
+
+  /* ================= GLOBAL ACTION ================= */
+
+  const handleCreate = () => {
+    if (pathname.includes("leads")) {
+      router.push("/dashboard/leads?create=true");
+    } else {
+      router.push("/dashboard/deals?create=true");
+    }
+  };
+
+  /* ================= UI ================= */
+
   return (
-    <header style={{
-      height: 64,
-      width: "100%",
-      borderBottom: "1px solid #e2e8f0",
-      background: "white",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 24px",
-      gap: 16,
-      flexShrink: 0,
-    }}>
+    <header className="h-16 w-full border-b bg-white flex items-center justify-between px-6">
 
       {/* LEFT */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, color: "#334155", whiteSpace: "nowrap" }}>
-          Dashboard
+      <div className="flex items-center gap-6 flex-1 min-w-0">
+
+        {/* DYNAMIC TITLE */}
+        <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">
+          {pageTitles[pageTitle]}
         </div>
 
         {/* SEARCH */}
-        <div style={{ position: "relative", display: "flex", alignItems: "center", flex: 1, maxWidth: 400 }}>
-          <Search size={16} style={{ position: "absolute", left: 12, color: "#94a3b8" }} />
+        <div className="relative flex items-center w-full max-w-md">
+          <Search className="absolute left-3 w-4 h-4 text-slate-400" />
+
           <input
-            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Search deals, leads..."
-            style={{
-              width: "100%",
-              paddingLeft: 36,
-              paddingRight: 48,
-              paddingTop: 8,
-              paddingBottom: 8,
-              fontSize: 13,
-              background: "#f1f5f9",
-              border: "none",
-              borderRadius: 8,
-              outline: "none",
-            }}
+            className="w-full pl-9 pr-12 py-2 text-sm bg-slate-100 rounded-lg outline-none focus:ring-2 focus:ring-slate-300"
           />
-          <span style={{
-            position: "absolute", right: 12, fontSize: 11, color: "#94a3b8",
-            border: "1px solid #e2e8f0", borderRadius: 4, padding: "1px 6px",
-          }}>
+
+          <span className="absolute right-3 text-[11px] text-slate-400 border rounded px-1.5 py-0.5">
             ⌘K
           </span>
         </div>
+
       </div>
 
       {/* RIGHT */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+      <div className="flex items-center gap-3">
 
-        {/* ADD DEAL */}
-        <button style={{
-          display: "flex", alignItems: "center", gap: 4, fontSize: 12,
-          background: "black", color: "white", padding: "6px 12px",
-          borderRadius: 8, border: "none", cursor: "pointer",
-        }}>
+        {/* GLOBAL CREATE */}
+        <button
+          onClick={handleCreate}
+          className="flex items-center gap-2 text-xs bg-black text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition"
+        >
           <Plus size={14} />
-          Add Deal
+          Create
         </button>
 
         {/* ALERTS */}
-        <div style={{ position: "relative" }}>
+        <div className="relative">
           <button
-            onClick={() => setOpen((prev) => !prev)}
-            style={{ position: "relative", padding: 8, borderRadius: 8, border: "none", background: "none", cursor: "pointer", color: "#64748b" }}
+            onClick={() => setOpen((p) => !p)}
+            className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-500"
           >
             <Bell size={18} />
+
             {unreadCount > 0 && (
-              <span style={{
-                position: "absolute", top: -4, right: -4,
-                background: "#ef4444", color: "white", fontSize: 10,
-                padding: "2px 5px", borderRadius: 999,
-              }}>
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] px-1.5 rounded-full">
                 {unreadCount}
               </span>
             )}
@@ -125,41 +189,46 @@ export default function Topbar() {
           <AnimatePresence>
             {open && (
               <motion.div
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                style={{
-                  position: "absolute", right: 0, top: "100%", marginTop: 8,
-                  width: 320, background: "white", border: "1px solid #e2e8f0",
-                  borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.08)", zIndex: 50, overflow: "hidden",
-                }}
+                exit={{ opacity: 0, y: 6 }}
+                className="absolute right-0 mt-2 w-80 bg-white border rounded-xl shadow-lg z-50 overflow-hidden"
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>Alerts</span>
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <span className="text-sm font-semibold">Alerts</span>
+
                   {unreadCount > 0 && (
-                    <button onClick={clearAll} style={{ fontSize: 12, color: "#64748b", background: "none", border: "none", cursor: "pointer" }}>
+                    <button
+                      onClick={clearAll}
+                      className="text-xs text-slate-500 hover:text-black"
+                    >
                       Clear all
                     </button>
                   )}
                 </div>
 
-                <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                <div className="max-h-80 overflow-y-auto">
                   {alerts.length === 0 ? (
-                    <p style={{ padding: "24px 16px", fontSize: 14, color: "#64748b", textAlign: "center" }}>No alerts</p>
+                    <p className="p-6 text-sm text-slate-500 text-center">
+                      No alerts
+                    </p>
                   ) : (
                     alerts.map((alert) => (
                       <div
                         key={alert.id}
                         onClick={() => handleAlertClick(alert)}
-                        style={{
-                          padding: "12px 16px",
-                          borderBottom: "1px solid #f1f5f9",
-                          background: alert.status === "new" ? "#f8fafc" : "white",
-                          cursor: "pointer",
-                        }}
+                        className={`px-4 py-3 border-b cursor-pointer ${
+                          alert.status === "new"
+                            ? "bg-slate-50"
+                            : "bg-white"
+                        } hover:bg-slate-100`}
                       >
-                        <p style={{ fontSize: 14, fontWeight: 500 }}>{alert.title}</p>
-                        <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{alert.message}</p>
+                        <p className="text-sm font-medium">
+                          {alert.title}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {alert.message}
+                        </p>
                       </div>
                     ))
                   )}
@@ -170,12 +239,34 @@ export default function Topbar() {
         </div>
 
         {/* USER */}
-        <div style={{
-          height: 32, width: 32, borderRadius: "50%", background: "black", color: "white",
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600,
-        }}>
-          D
-        </div>
+        {isLoggedIn && (
+          <div className="relative">
+            <button
+              onClick={() => setUserOpen((p) => !p)}
+              className="h-8 w-8 rounded-full bg-black text-white flex items-center justify-center text-xs font-semibold"
+            >
+              D
+            </button>
+
+            <AnimatePresence>
+              {userOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  className="absolute right-0 mt-2 w-40 bg-white border rounded-lg shadow-lg z-50"
+                >
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-100"
+                  >
+                    Logout
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
 
       </div>
     </header>

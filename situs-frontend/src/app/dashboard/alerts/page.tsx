@@ -1,34 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, Bell } from "lucide-react";
 import MetricCard from "../../../components/dashboard/metric-card";
+import toast from "react-hot-toast";
+
+import { apiFetch } from "@/lib/api";
 
 /* ================= TYPES ================= */
 
 type AlertSeverity = "critical" | "watch" | "opportunity";
-type AlertStatus = "new" | "in_progress" | "snoozed" | "resolved";
-
-type Lead = {
-  _id: string;
-  name: string;
-  company: string;
-  value?: number;
-  status?: string;
-  lastContactedAt?: string | null;
-};
-
-type Deal = {
-  _id: string;
-  title: string;
-  company: string;
-  amount?: number;
-  stage?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+type AlertStatus = "new" | "acknowledged" | "snoozed" | "resolved";
 
 type RevenueAlert = {
   id: string;
@@ -38,135 +22,88 @@ type RevenueAlert = {
   severity: AlertSeverity;
   status: AlertStatus;
   impact: number;
-  impactLabel: string;
-  owner: string;
   detectedAt: string;
   action: string;
   detail: string;
+  riskScore?: number;
+  snoozedUntil?: string;
+  aiReason?: string;
 };
+
+type Notification = {
+  _id: string;
+  title: string;
+  read: boolean;
+  createdAt: string;
+};
+
+/* Backend alert shape (subset we read) */
+type BackendAlert = {
+  _id: string;
+  title: string;
+  message: string;
+  severity: "low" | "medium" | "high" | "critical";
+  status: "open" | "acknowledged" | "resolved" | "dismissed";
+  impactScore?: number;
+  createdAt: string;
+  recommendedAction?: string;
+  relatedTo?: { label?: string };
+};
+
+/* ================= MAPPERS ================= */
+
+function mapSeverity(s: BackendAlert["severity"]): AlertSeverity {
+  if (s === "critical") return "critical";
+  if (s === "high" || s === "medium") return "watch";
+  return "opportunity";
+}
+
+function mapStatus(s: BackendAlert["status"]): AlertStatus {
+  if (s === "open") return "new";
+  if (s === "acknowledged") return "acknowledged";
+  if (s === "resolved" || s === "dismissed") return "resolved";
+  return "new";
+}
+
+function generateReason(severity: AlertSeverity): string {
+  if (severity === "critical") return "High impact + urgent attention required";
+  if (severity === "watch") return "Moderate risk trend detected";
+  return "Potential opportunity detected";
+}
+
+function mapBackendAlert(a: BackendAlert): RevenueAlert {
+  const severity = mapSeverity(a.severity);
+  return {
+    id: a._id,
+    title: a.title,
+    message: a.message,
+    company: a.relatedTo?.label || "—",
+    severity,
+    status: mapStatus(a.status),
+    impact: typeof a.impactScore === "number" ? a.impactScore : 0,
+    detectedAt: a.createdAt,
+    action: a.recommendedAction || "",
+    detail: a.message,
+    riskScore: typeof a.impactScore === "number" ? a.impactScore : 0,
+    aiReason: generateReason(severity),
+  };
+}
 
 /* ================= HELPERS ================= */
 
 function formatCurrency(value: number) {
-  return `$${(value / 1000).toFixed(0)}K`;
+  return `₹${(value / 1000).toFixed(0)}K`;
 }
 
 function getSeverityStyle(severity: AlertSeverity) {
   switch (severity) {
     case "critical":
-      return "bg-red-50 text-red-700";
+      return "bg-red-50 text-red-700 border-red-200";
     case "watch":
-      return "bg-amber-50 text-amber-700";
+      return "bg-amber-50 text-amber-700 border-amber-200";
     default:
-      return "bg-emerald-50 text-emerald-700";
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
-}
-
-function getSeverityLabel(severity: AlertSeverity) {
-  return severity.charAt(0).toUpperCase() + severity.slice(1);
-}
-
-/* ================= ALERT ENGINE ================= */
-
-function generateAlerts({
-  leads,
-  deals,
-}: {
-  leads: Lead[];
-  deals: Deal[];
-}): RevenueAlert[] {
-  const alerts: RevenueAlert[] = [];
-  const now = new Date();
-
-  // 🔴 Leads logic
-  leads.forEach((lead) => {
-    const value = lead.value || 0;
-
-    // High value opportunity
-    if (value > 50000) {
-      alerts.push({
-        id: `opportunity-${lead._id}`,
-        title: "High value lead",
-        message: `${lead.name} is high value`,
-        company: lead.company,
-        severity: "opportunity",
-        status: "new",
-        impact: value,
-        impactLabel: formatCurrency(value),
-        owner: "Sales",
-        detectedAt: now.toISOString(),
-        action: "Prioritize immediately",
-        detail: "This lead has strong revenue potential.",
-      });
-    }
-
-    // Follow-up logic (even if missing date)
-    if (!lead.lastContactedAt) {
-      alerts.push({
-        id: `followup-${lead._id}`,
-        title: "No contact yet",
-        message: `${lead.name} not contacted`,
-        company: lead.company,
-        severity: "watch",
-        status: "new",
-        impact: value,
-        impactLabel: formatCurrency(value),
-        owner: "Sales",
-        detectedAt: now.toISOString(),
-        action: "Make first contact",
-        detail: "This lead has not been contacted yet.",
-      });
-      return;
-    }
-
-    const diffDays =
-      (now.getTime() - new Date(lead.lastContactedAt).getTime()) /
-      (1000 * 60 * 60 * 24);
-
-    if (diffDays > 5) {
-      alerts.push({
-        id: `stale-${lead._id}`,
-        title: "Follow-up required",
-        message: `${lead.name} is going cold`,
-        company: lead.company,
-        severity: "watch",
-        status: "new",
-        impact: value,
-        impactLabel: formatCurrency(value),
-        owner: "Sales",
-        detectedAt: now.toISOString(),
-        action: "Re-engage lead",
-        detail: "Lead hasn’t been contacted recently.",
-      });
-    }
-  });
-
-  // 🔴 Deals logic
-  deals.forEach((deal) => {
-    const updated = new Date(deal.updatedAt || deal.createdAt || now);
-    const diffDays =
-      (now.getTime() - updated.getTime()) / (1000 * 60 * 60 * 24);
-
-    if (diffDays > 5 && deal.stage !== "closed") {
-      alerts.push({
-        id: `deal-${deal._id}`,
-        title: "Deal stuck",
-        message: `${deal.title} not moving`,
-        company: deal.company,
-        severity: "critical",
-        status: "new",
-        impact: deal.amount || 0,
-        impactLabel: formatCurrency(deal.amount || 0),
-        owner: "Sales",
-        detectedAt: now.toISOString(),
-        action: "Follow up urgently",
-        detail: "Deal has not progressed recently.",
-      });
-    }
-  });
-
-  // 🔥 Remove duplicates
-  return Array.from(new Map(alerts.map((a) => [a.id, a])).values());
 }
 
 /* ================= PAGE ================= */
@@ -174,212 +111,255 @@ function generateAlerts({
 export default function AlertsPage() {
   const router = useRouter();
 
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [deals, setDeals] = useState<Deal[]>([]);
   const [alerts, setAlerts] = useState<RevenueAlert[]>([]);
+  const [notifications] = useState<Notification[]>([]);
+  const [showPanel, setShowPanel] = useState(false);
+
   const [loading, setLoading] = useState(true);
-  const [selectedAlert, setSelectedAlert] =
-    useState<RevenueAlert | null>(null);
+  const [connected, setConnected] = useState(false);
 
-  /* 🔥 FETCH */
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  /* ================= CLOCK ================= */
+
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const [l, d] = await Promise.all([
-          fetch("/api/leads"),
-          fetch("/api/deals"),
-        ]);
-
-        const leadsData = await l.json();
-        const dealsData = await d.json();
-
-        setLeads(leadsData?.data || []);
-        setDeals(dealsData?.data || []);
-      } catch (e) {
-        console.error(e);
-        setLeads([]);
-        setDeals([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
   }, []);
 
-  /* 🔥 GENERATE */
+  /* ================= FETCH (REST polling) ================= */
+
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ success: boolean; data: BackendAlert[] }>(
+        "/api/alerts?limit=100&sortOrder=desc"
+      );
+      const raw = Array.isArray(res?.data) ? res.data : [];
+      setAlerts(raw.map(mapBackendAlert));
+      setConnected(true);
+    } catch (err) {
+      console.error("Failed to fetch alerts", err);
+      setConnected(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!Array.isArray(leads) || !Array.isArray(deals)) return;
+    fetchAlerts();
+    /* Poll every 20s — replaces the old WebSocket stream */
+    const interval = setInterval(fetchAlerts, 20_000);
+    return () => clearInterval(interval);
+  }, [fetchAlerts]);
 
-    const result = generateAlerts({ leads, deals });
+  /* ================= ACTIONS ================= */
 
-    // Sort: critical → watch → opportunity
-    const sorted = result.sort((a, b) => {
-      const order = { critical: 0, watch: 1, opportunity: 2 };
-      return order[a.severity] - order[b.severity];
-    });
-
-    setAlerts(sorted);
-  }, [leads, deals]);
-
-  /* ================= METRICS ================= */
-
-  const metrics = useMemo(() => {
-    return {
-      criticalCount: alerts.filter(
-        (a) => a.severity === "critical" && a.status !== "resolved"
-      ).length,
-      watchCount: alerts.filter(
-        (a) => a.severity === "watch" && a.status !== "resolved"
-      ).length,
-      revenueRisk: alerts
-        .filter((a) => a.severity !== "opportunity")
-        .reduce((sum, a) => sum + a.impact, 0),
-    };
-  }, [alerts]);
-
-  function resolve(id: string) {
+  const updateStatusLocal = (alert: RevenueAlert, status: AlertStatus) => {
     setAlerts((prev) =>
-      prev.map((a) =>
-        a.id === id ? { ...a, status: "resolved" } : a
+      prev.map((a) => (a.id === alert.id ? { ...a, status } : a))
+    );
+  };
+
+  const handleAck = async (a: RevenueAlert) => {
+    updateStatusLocal(a, "acknowledged");
+    toast.success("Acknowledged");
+    try {
+      await apiFetch(`/api/alerts/${a.id}/read`, { method: "PATCH" });
+    } catch {
+      toast.error("Failed to sync");
+    }
+  };
+
+  const handleResolve = async (a: RevenueAlert) => {
+    updateStatusLocal(a, "resolved");
+    toast.success("Resolved");
+    try {
+      await apiFetch(`/api/alerts/${a.id}/resolve`, { method: "PATCH" });
+    } catch {
+      toast.error("Failed to sync");
+    }
+  };
+
+  const handleSnooze = (a: RevenueAlert) => {
+    /* Snooze is client-side only — backend has no snooze concept */
+    const until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    setAlerts((prev) =>
+      prev.map((al) =>
+        al.id === a.id
+          ? { ...al, status: "snoozed", snoozedUntil: until }
+          : al
       )
     );
-  }
+
+    toast("Snoozed 30 min");
+  };
+
+  /* ================= FILTER ================= */
+
+  const visibleAlerts = useMemo(() => {
+    return alerts.filter((a) => {
+      if (a.status === "resolved") return false;
+
+      if (a.status === "snoozed") {
+        if (!a.snoozedUntil) return false;
+        return new Date(a.snoozedUntil).getTime() <= now;
+      }
+
+      return true;
+    });
+  }, [alerts, now]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   /* ================= UI ================= */
 
   return (
-    <>
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-10">
+    <div className="max-w-7xl mx-auto px-6 py-10 space-y-8">
 
-        {/* HEADER */}
-        <header className="space-y-4">
+      {/* HEADER */}
+      <div className="flex justify-between items-center">
+        <div>
           <button
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"
+            onClick={() => router.back()}
+            className="flex gap-2 text-sm text-slate-500"
           >
-            <ArrowLeft size={16} />
-            Back to Dashboard
+            <ArrowLeft size={16} /> Back
           </button>
 
-          <div>
-            <h1 className="text-3xl font-semibold">Alerts</h1>
-            <p className="text-sm text-slate-500">
-              AI-generated signals from your pipeline
-            </p>
-          </div>
-        </header>
+          <h1 className="text-3xl font-semibold">Alerts Intelligence</h1>
 
-        {/* METRICS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <MetricCard title="Critical" value={String(metrics.criticalCount)} />
-          <MetricCard title="Watch" value={String(metrics.watchCount)} />
-          <MetricCard
-            title="Revenue Risk"
-            value={`$${(metrics.revenueRisk / 1000000).toFixed(1)}M`}
-          />
+          <p className="text-xs mt-1">
+            {connected ? (
+              <span className="text-emerald-600">● Live</span>
+            ) : (
+              <span className="text-red-500">● Reconnecting...</span>
+            )}
+          </p>
         </div>
 
-        {/* LIST */}
-        <div className="space-y-4">
+        {/* NOTIFICATIONS */}
+        <div className="relative">
+          <button onClick={() => setShowPanel((p) => !p)}>
+            <Bell size={20} />
 
-          {loading ? (
-            <div className="text-center py-20">Loading...</div>
-          ) : alerts.length === 0 ? (
-            <div className="text-center py-20 border rounded-xl bg-white">
-              No alerts yet 🚀
-            </div>
-          ) : (
-            alerts.map((alert, i) => (
+            {unreadCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1 rounded">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          <AnimatePresence>
+            {showPanel && (
               <motion.div
-                key={alert.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="border rounded-xl p-5 bg-white hover:shadow-md"
+                exit={{ opacity: 0, y: 6 }}
+                className="absolute right-0 mt-3 w-72 bg-white border rounded-xl shadow-lg p-3 z-50"
               >
-                <div className="flex justify-between">
-
-                  <div>
-                    <p className="font-semibold">{alert.title}</p>
-                    <p className="text-sm text-slate-500">
-                      {alert.company}
-                    </p>
-
-                    <span
-                      className={`text-xs px-2 py-1 rounded ${getSeverityStyle(
-                        alert.severity
-                      )}`}
-                    >
-                      {getSeverityLabel(alert.severity)}
-                    </span>
-
-                    <p className="text-sm mt-1">{alert.message}</p>
+                {notifications.length === 0 ? (
+                  <div className="p-2 text-sm text-slate-400">
+                    No notifications
                   </div>
-
-                  <p className="font-semibold">{alert.impactLabel}</p>
-                </div>
-
-                <div className="flex justify-end gap-2 mt-4">
-                  <button
-                    onClick={() => setSelectedAlert(alert)}
-                    className="text-sm border px-3 py-1 rounded"
-                  >
-                    View
-                  </button>
-
-                  {alert.status !== "resolved" && (
-                    <button
-                      onClick={() => resolve(alert.id)}
-                      className="text-sm bg-black text-white px-3 py-1 rounded"
-                    >
-                      Resolve
-                    </button>
-                  )}
-                </div>
+                ) : (
+                  notifications.map((n) => (
+                    <div key={n._id} className="p-2 text-sm">
+                      {n.title}
+                    </div>
+                  ))
+                )}
               </motion.div>
-            ))
-          )}
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* MODAL */}
-      <AnimatePresence>
-        {selectedAlert && (
-          <>
-            <motion.div
-              className="fixed inset-0 bg-black/30"
-              onClick={() => setSelectedAlert(null)}
-            />
-            <motion.div className="fixed inset-0 flex justify-center items-center">
-              <div className="bg-white p-6 rounded-xl w-full max-w-md relative">
+      {/* METRICS */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <MetricCard
+          title="Critical"
+          value={String(
+            visibleAlerts.filter((a) => a.severity === "critical").length
+          )}
+        />
+        <MetricCard
+          title="Watch"
+          value={String(
+            visibleAlerts.filter((a) => a.severity === "watch").length
+          )}
+        />
+        <MetricCard
+          title="Revenue Risk"
+          value={`₹${(
+            visibleAlerts.reduce((s, a) => s + a.impact, 0) / 1000000
+          ).toFixed(1)}M`}
+        />
+      </div>
 
-                <button
-                  onClick={() => setSelectedAlert(null)}
-                  className="absolute top-3 right-3"
+      {/* LIST */}
+      <div className="border rounded-xl bg-white divide-y">
+        {loading ? (
+          <div className="p-10 text-center">Connecting...</div>
+        ) : visibleAlerts.length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">
+            No active alerts
+          </div>
+        ) : (
+          visibleAlerts.map((alert) => (
+            <div key={alert.id} className="p-4 flex justify-between">
+              <div>
+                <p className="font-medium">{alert.title}</p>
+
+                <span
+                  className={`text-xs px-2 py-0.5 rounded border ${getSeverityStyle(
+                    alert.severity
+                  )}`}
                 >
-                  <X size={18} />
-                </button>
+                  {alert.severity}
+                </span>
 
-                <h2 className="font-semibold text-lg">
-                  {selectedAlert.title}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {selectedAlert.company}
+                <p className="text-sm">{alert.message}</p>
+
+                <p className="text-xs text-slate-400">
+                  AI Score: {alert.riskScore}
                 </p>
 
-                <p className="mt-4">{selectedAlert.detail}</p>
-
-                <p className="text-xs mt-4 text-slate-400">
-                  Suggested action:
-                </p>
-                <p>{selectedAlert.action}</p>
-
+                {alert.aiReason && (
+                  <p className="text-xs text-slate-400">
+                    {alert.aiReason}
+                  </p>
+                )}
               </div>
-            </motion.div>
-          </>
+
+              <div className="flex flex-col items-end gap-2">
+                <p>{formatCurrency(alert.impact)}</p>
+
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={() => handleAck(alert)}
+                    className="border px-2 py-1 rounded"
+                  >
+                    Ack
+                  </button>
+                  <button
+                    onClick={() => handleSnooze(alert)}
+                    className="border px-2 py-1 rounded"
+                  >
+                    Snooze
+                  </button>
+                  <button
+                    onClick={() => handleResolve(alert)}
+                    className="bg-black text-white px-2 py-1 rounded"
+                  >
+                    Resolve
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
         )}
-      </AnimatePresence>
-    </>
+      </div>
+    </div>
   );
 }

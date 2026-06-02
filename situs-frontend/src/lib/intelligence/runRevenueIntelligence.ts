@@ -1,4 +1,4 @@
-import { calculateRiskScore } from "../riskScore"
+import { calculateRiskScore } from "./riskscore"
 import { calculateMomentum } from "./dealMomentum"
 import { calculatePipelineHealth } from "./pipelineHealth"
 import { generateForecast } from "./forecastEngine"

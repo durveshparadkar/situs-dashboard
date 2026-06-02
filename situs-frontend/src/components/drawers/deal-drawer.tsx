@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { Building2, Mail, Calendar, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 import DrawerShell from "./shared/drawer-shell";
+import { apiFetch } from "@/lib/api";
+
+import { createDeal, updateDeal, type BackendDeal } from "../../lib/intelligence/deals.api";
 
 /* ================= TYPES ================= */
 
@@ -17,107 +20,111 @@ interface Deal {
 interface Props {
   deal: Deal | null;
   onClose: () => void;
-  onUpdate: (deal: Deal) => void;
+  onUpdate: (deal: BackendDeal) => void;
 }
 
 /* ================= COMPONENT ================= */
 
 export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
+  const isEdit = Boolean(deal?._id);
+
   const [loading, setLoading] = useState(false);
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
   const [probability, setProbability] = useState("");
 
-  const [composer, setComposer] = useState<null | "email" | "meeting">(null);
+  const [composer, setComposer] = useState<"email" | "meeting" | null>(null);
 
   const [emailMessage, setEmailMessage] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
+
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingTime, setMeetingTime] = useState("");
 
-  /* Sync fields when deal changes */
-  useEffect(
-    function () {
-      if (!deal) return;
-      setTitle(deal.name || "");
-      setValue(deal.value !== undefined ? String(deal.value) : "");
-      setProbability(String(100 - deal.riskScore));
-      setComposer(null);
-      setEmailMessage("");
-      setMeetingDate("");
-      setMeetingTime("");
-    },
-    [deal]
-  );
+  /* ================= SYNC ================= */
 
-  /* Derived calculations */
+  useEffect(() => {
+    if (!deal) {
+      setTitle("");
+      setValue("");
+      setProbability("");
+      return;
+    }
+
+    setTitle(deal.name || "");
+    setValue(deal.value ? String(deal.value) : "");
+    setProbability(String(100 - deal.riskScore));
+
+    setComposer(null);
+    setEmailMessage("");
+    setMeetingDate("");
+    setMeetingTime("");
+  }, [deal]);
+
+  /* ================= DERIVED ================= */
+
   const prob = Math.min(100, Math.max(0, Number(probability) || 0));
   const val = Math.max(0, Number(value) || 0);
   const weighted = Math.round((val * prob) / 100);
 
-  /* ================= HANDLERS ================= */
+  /* ================= SAVE =================
+     Routes through backend deals API:
+     - Create: POST /api/deals (auto-resolves default pipeline + first stage)
+     - Update: PATCH /api/deals/:id */
 
   async function handleSave() {
-    if (!deal) return;
-    if (!deal._id) {
-      toast.error("Missing deal ID");
-      return;
-    }
+    if (!title.trim()) return toast.error("Title required");
+
     setLoading(true);
+
     try {
-      const res = await fetch("/api/deals", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: deal._id,
+      if (isEdit && deal?._id) {
+        const updated = await updateDeal(deal._id, {
           title,
           value: val,
           probability: prob,
-        }),
-      });
-      const result = await res.json();
-      const updated = result && result.data ? result.data : null;
+        });
 
-      if (!res.ok || !updated) {
-        toast.error("Update failed");
-        return;
+        onUpdate(updated);
+
+        toast.success("Deal updated");
+      } else {
+        const created = await createDeal({
+          title,
+          value:       val,
+          probability: prob,
+        });
+
+        onUpdate(created);
+
+        toast.success("Deal created");
       }
 
-      onUpdate({
-        _id: updated._id || deal._id,
-        name: updated.title || title,
-        value: updated.value !== undefined ? updated.value : val,
-        riskScore:
-          typeof updated.probability === "number"
-            ? 100 - updated.probability
-            : 100 - prob,
-      });
-
-      toast.success("Deal updated");
       onClose();
     } catch (err) {
       console.error(err);
-      toast.error("Server error");
+      toast.error(
+        err instanceof Error ? err.message : "Save failed"
+      );
     } finally {
       setLoading(false);
     }
   }
 
+  /* ================= EMAIL ================= */
+
   async function generateEmail() {
-    if (!deal) return;
     setEmailLoading(true);
     try {
-      const res = await fetch("/api/generate-email", {
+      const data = await apiFetch<{ email?: string }>("/api/generate-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: deal.name }),
+        body: JSON.stringify({ name: title }),
       });
-      const data = await res.json();
-      setEmailMessage(data.email || "");
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not generate email");
+
+      setEmailMessage(data?.email || "");
+    } catch {
+      toast.error("Failed to generate email");
     } finally {
       setEmailLoading(false);
     }
@@ -125,288 +132,207 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
   async function sendEmail() {
     try {
-      const res = await fetch("/api/send-email", {
+      await apiFetch("/api/send-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: "Follow up", message: emailMessage }),
+        body: JSON.stringify({ message: emailMessage }),
       });
-      if (res.ok) {
-        toast.success("Email sent");
-        setComposer(null);
-      } else {
-        toast.error("Email failed");
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Server error");
+
+      toast.success("Email sent");
+      setComposer(null);
+    } catch {
+      toast.error("Failed to send email");
     }
   }
 
+  /* ================= MEETING ================= */
+
   async function scheduleMeeting() {
+    if (!meetingDate || !meetingTime) {
+      toast.error("Select date & time");
+      return;
+    }
+
     try {
-      const res = await fetch("/api/schedule-meeting", {
+      await apiFetch("/api/schedule-meeting", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deal, date: meetingDate, time: meetingTime }),
+        body: JSON.stringify({ date: meetingDate, time: meetingTime }),
       });
-      if (res.ok) {
-        toast.success("Meeting scheduled");
-        setComposer(null);
-      } else {
-        toast.error("Schedule failed");
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Server error");
+
+      toast.success("Meeting scheduled");
+      setComposer(null);
+    } catch {
+      toast.error("Failed to schedule");
     }
   }
 
   /* ================= UI ================= */
 
-  const open = deal !== null;
-
-  const footer = (
-    <div className="grid grid-cols-2 gap-2">
-      <button
-        type="button"
-        onClick={function () {
-          setComposer("meeting");
-        }}
-        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-medium text-zinc-700 bg-white border border-black/[0.08] rounded-lg hover:bg-zinc-50 hover:border-black/[0.14] transition-colors"
-      >
-        <Calendar className="w-3.5 h-3.5" strokeWidth={2} />
-        Schedule
-      </button>
-      <button
-        type="button"
-        onClick={function () {
-          setComposer("email");
-        }}
-        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-medium text-white bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-colors"
-      >
-        <Mail className="w-3.5 h-3.5" strokeWidth={2} />
-        Send Email
-      </button>
-    </div>
-  );
-
   return (
     <DrawerShell
-      open={open}
+      open={Boolean(deal)}
       onClose={onClose}
-      title={deal ? deal.name : ""}
+      title={isEdit ? title || "Deal" : "New Deal"}
       subtitle="Deal Intelligence"
-      icon={<Building2 className="w-4 h-4 text-zinc-700" strokeWidth={1.75} />}
-      footer={footer}
+      icon={<Building2 className="w-4 h-4 text-slate-700" />}
+      footer={
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setComposer("meeting")}
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm border rounded-lg hover:bg-slate-50"
+          >
+            <Calendar size={14} />
+            Schedule
+          </button>
+
+          <button
+            onClick={() => setComposer("email")}
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-white bg-black rounded-lg hover:bg-slate-800"
+          >
+            <Mail size={14} />
+            Email
+          </button>
+        </div>
+      }
     >
-      {deal && (
-        <div className="px-6 py-6 space-y-6">
-          {/* STAT TRIO */}
-          <section className="grid grid-cols-3 gap-2">
-            <StatCard label="Value" value={"₹" + val.toLocaleString()} />
-            <StatCard label="Probability" value={prob + "%"} />
-            <StatCard
-              label="Weighted"
-              value={"₹" + weighted.toLocaleString()}
-              tone="emerald"
-            />
-          </section>
+      <div className="px-6 py-6 space-y-6">
 
-          {/* FORM */}
-          <section className="space-y-3">
-            <SectionLabel>Deal details</SectionLabel>
+        {/* STATS */}
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="Value" value={`₹${val.toLocaleString()}`} />
+          <Stat label="Win %" value={`${prob}%`} />
+          <Stat
+            label="Expected"
+            value={`₹${weighted.toLocaleString()}`}
+            highlight
+          />
+        </div>
 
-            <Field label="Title">
-              <input
-                value={title}
-                onChange={function (e) {
-                  setTitle(e.target.value);
-                }}
-                className="w-full px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors"
-              />
-            </Field>
+        {/* FORM */}
+        <div className="space-y-4">
+          <SectionTitle>Deal Details</SectionTitle>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Value (₹)">
-                <input
-                  type="number"
-                  value={value}
-                  onChange={function (e) {
-                    setValue(e.target.value);
-                  }}
-                  className="w-full px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors tabular-nums"
-                />
-              </Field>
+          <Input label="Title" value={title} onChange={setTitle} />
 
-              <Field label="Probability (%)">
-                <input
-                  type="number"
-                  value={probability}
-                  onChange={function (e) {
-                    setProbability(e.target.value);
-                  }}
-                  className="w-full px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors tabular-nums"
-                />
-              </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Value" type="number" value={value} onChange={setValue} />
+            <Input label="Probability" type="number" value={probability} onChange={setProbability} />
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={loading}
+            className="w-full py-2.5 text-sm text-white bg-black rounded-xl hover:bg-slate-800"
+          >
+            {loading ? "Saving..." : isEdit ? "Save Changes" : "Create Deal"}
+          </button>
+        </div>
+
+        {/* EMAIL */}
+        {composer === "email" && (
+          <Card>
+            <div className="flex justify-between mb-2">
+              <SectionTitle>Email</SectionTitle>
+
+              <button
+                onClick={generateEmail}
+                className="text-emerald-600 text-xs flex items-center gap-1"
+              >
+                <Sparkles size={12} />
+                {emailLoading ? "..." : "AI"}
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={loading}
-              className="w-full mt-2 px-3 py-2 text-[13px] font-medium text-white bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {loading ? "Saving..." : "Save Changes"}
-            </button>
-          </section>
+            <textarea
+              value={emailMessage}
+              onChange={(e) => setEmailMessage(e.target.value)}
+              className="w-full h-28 border rounded-lg p-2 text-sm"
+            />
 
-          {/* EMAIL COMPOSER */}
-          {composer === "email" && (
-            <section className="space-y-3 rounded-xl border border-black/[0.06] bg-zinc-50/50 p-4">
-              <div className="flex items-center justify-between">
-                <SectionLabel>Email composer</SectionLabel>
-                <button
-                  type="button"
-                  onClick={generateEmail}
-                  disabled={emailLoading}
-                  className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-emerald-700 hover:text-emerald-800 transition-colors disabled:opacity-60"
-                >
-                  <Sparkles className="w-3 h-3" strokeWidth={2.25} />
-                  {emailLoading ? "Generating..." : "Generate with AI"}
-                </button>
-              </div>
+            <div className="flex justify-end gap-2 mt-2">
+              <button onClick={() => setComposer(null)} className="px-3 py-1 text-sm border rounded">
+                Cancel
+              </button>
+              <button onClick={sendEmail} className="px-3 py-1 text-sm bg-black text-white rounded">
+                Send
+              </button>
+            </div>
+          </Card>
+        )}
 
-              <textarea
-                value={emailMessage}
-                onChange={function (e) {
-                  setEmailMessage(e.target.value);
-                }}
-                placeholder="Write or generate an email..."
-                className="w-full h-32 px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors resize-none leading-relaxed"
+        {/* MEETING */}
+        {composer === "meeting" && (
+          <Card>
+            <SectionTitle>Meeting</SectionTitle>
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={meetingDate}
+                onChange={(e) => setMeetingDate(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
               />
+              <input
+                type="time"
+                value={meetingTime}
+                onChange={(e) => setMeetingTime(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              />
+            </div>
 
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={function () {
-                    setComposer(null);
-                  }}
-                  className="px-3 py-1.5 text-[12px] font-medium text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={sendEmail}
-                  disabled={!emailMessage.trim()}
-                  className="px-3 py-1.5 text-[12px] font-medium text-white bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Send
-                </button>
-              </div>
-            </section>
-          )}
-
-          {/* MEETING COMPOSER */}
-          {composer === "meeting" && (
-            <section className="space-y-3 rounded-xl border border-black/[0.06] bg-zinc-50/50 p-4">
-              <SectionLabel>Schedule meeting</SectionLabel>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Date">
-                  <input
-                    type="date"
-                    value={meetingDate}
-                    onChange={function (e) {
-                      setMeetingDate(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors"
-                  />
-                </Field>
-                <Field label="Time">
-                  <input
-                    type="time"
-                    value={meetingTime}
-                    onChange={function (e) {
-                      setMeetingTime(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 text-[13px] text-zinc-900 bg-white border border-black/[0.08] rounded-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200/40 transition-colors"
-                  />
-                </Field>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={function () {
-                    setComposer(null);
-                  }}
-                  className="px-3 py-1.5 text-[12px] font-medium text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={scheduleMeeting}
-                  disabled={!meetingDate || !meetingTime}
-                  className="px-3 py-1.5 text-[12px] font-medium text-white bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Confirm
-                </button>
-              </div>
-            </section>
-          )}
-        </div>
-      )}
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={scheduleMeeting}
+                className="px-3 py-1 text-sm bg-black text-white rounded"
+              >
+                Confirm
+              </button>
+            </div>
+          </Card>
+        )}
+      </div>
     </DrawerShell>
   );
 }
 
-/* ================= INLINE PRIMITIVES ================= */
+/* ================= UI ================= */
 
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "emerald";
-}) {
-  const valueClass =
-    tone === "emerald"
-      ? "text-[16px] font-semibold tabular-nums text-emerald-700"
-      : "text-[16px] font-semibold tabular-nums text-zinc-900";
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="rounded-xl border border-black/[0.06] bg-white p-3">
-      <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-400 mb-1">
-        {label}
-      </div>
-      <div className={valueClass}>{value}</div>
+    <div className={`p-3 rounded-xl border ${
+      highlight ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
+    }`}>
+      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-sm font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <p className="text-[11px] uppercase text-slate-400">{children}</p>;
+}
+
+function Input({ label, value, onChange, type = "text" }: {
   label: string;
-  children: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
 }) {
   return (
-    <label className="block">
-      <span className="block text-[10.5px] font-medium uppercase tracking-[0.08em] text-zinc-500 mb-1">
-        {label}
-      </span>
-      {children}
-    </label>
+    <div>
+      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-black/10"
+      />
+    </div>
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-zinc-500">
+    <div className="p-4 border rounded-xl bg-slate-50">
       {children}
     </div>
   );
