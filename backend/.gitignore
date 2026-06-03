@@ -1,0 +1,28 @@
+# Environment files
+.env
+.env.*
+backend/.env
+backend/.env.*
+situs-frontend/.env
+situs-frontend/.env.*
+
+# Dependencies
+node_modules/
+backend/node_modules/
+situs-frontend/node_modules/
+
+# Build files
+dist/
+backend/dist/
+.next/
+out/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TypeScript cache
+*.tsbuildinfo
