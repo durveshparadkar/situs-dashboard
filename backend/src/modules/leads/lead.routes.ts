@@ -2,16 +2,18 @@ import { Router, Request, Response, NextFunction } from "express";
 import leadController from "./lead.controller.js";
 import leadIntelligenceService from "./leadIntelligence.service.js";
 import { protect } from "../../shared/middlewares/auth.middleware.js";
+import { requirePermission } from "../../shared/middlewares/permission.middleware.js";
 
 const router = Router();
 
 /* =====================================================
-   APPLY AUTH
+   🔐 AUTH LAYER (ENABLE IN PROD)
 ===================================================== */
+
 router.use(protect);
 
 /* =====================================================
-   INTELLIGENCE ROUTES (MUST STAY ABOVE "/:id")
+   🧠 INTELLIGENCE ROUTES
 ===================================================== */
 
 router.get(
@@ -23,8 +25,9 @@ router.get(
   "/intelligence/overview",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result =
-        await leadIntelligenceService.getOverview((req as any).user);
+      const result = await leadIntelligenceService.getOverview(
+        (req as any).user ?? null
+      );
 
       res.json({ success: true, data: result });
     } catch (err) {
@@ -38,7 +41,9 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result =
-        await leadIntelligenceService.getHighPriorityLeads((req as any).user);
+        await leadIntelligenceService.getHighPriorityLeads(
+          (req as any).user ?? null
+        );
 
       res.json({ success: true, data: result });
     } catch (err) {
@@ -52,7 +57,9 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result =
-        await leadIntelligenceService.getStaleLeads((req as any).user);
+        await leadIntelligenceService.getStaleLeads(
+          (req as any).user ?? null
+        );
 
       res.json({ success: true, data: result });
     } catch (err) {
@@ -66,7 +73,9 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result =
-        await leadIntelligenceService.getAgentPerformance((req as any).user);
+        await leadIntelligenceService.getAgentPerformance(
+          (req as any).user ?? null
+        );
 
       res.json({ success: true, data: result });
     } catch (err) {
@@ -76,52 +85,28 @@ router.get(
 );
 
 /* =====================================================
-   CREATE & LIST
+   📦 CREATE & LIST
 ===================================================== */
 
-router.post("/", leadController.create);
-router.get("/", leadController.findAll);
+router.post("/", requirePermission("CREATE_LEAD"), leadController.create);
+router.get("/", requirePermission("READ_LEAD"), leadController.findAll);
 
 /* =====================================================
-   ACTION ROUTES
-   (MUST STAY ABOVE "/:id")
+   ⚙️ ACTION ROUTES (CLEANED)
 ===================================================== */
 
-router.patch(
-  "/:id/actions/request-escalation",
-  leadController.requestEscalation
-);
+router.patch("/:id/actions/stage", requirePermission("UPDATE_LEAD"), leadController.updateStage);
+router.patch("/:id/actions/archive", requirePermission("UPDATE_LEAD"), leadController.archive);
+router.patch("/:id/actions/restore", requirePermission("UPDATE_LEAD"), leadController.restore);
 
-router.patch(
-  "/:id/actions/approve-escalation",
-  leadController.approveEscalation
-);
-
-router.patch(
-  "/:id/actions/stage",
-  leadController.updateStage
-);
-
-router.patch(
-  "/:id/actions/archive",
-  leadController.archive
-);
-
-router.patch(
-  "/:id/actions/restore",
-  leadController.restore
-);
-
-router.get(
-  "/:id/actions/activities",
-  leadController.getActivities
-);
+router.get("/:id/actions/activities", requirePermission("READ_LEAD"), leadController.getActivities);
 
 /* =====================================================
-   SINGLE LEAD (ALWAYS LAST)
+   📄 SINGLE LEAD
 ===================================================== */
 
-router.get("/:id", leadController.findOne);
-router.patch("/:id", leadController.update);
+router.get("/:id", requirePermission("READ_LEAD"), leadController.findOne);
+router.patch("/:id", requirePermission("UPDATE_LEAD"), leadController.update);
+router.delete("/:id", requirePermission("DELETE_LEAD", "UPDATE_LEAD"), leadController.archive);
 
 export default router;

@@ -1,52 +1,175 @@
-import express from "express";
+// entity.routes.ts
+import express, { Router, Request, Response, NextFunction } from "express";
 import type { RequestHandler } from "express";
+import mongoose from "mongoose";
 
 import { protect, authorize } from "../../shared/middlewares/auth.middleware.js";
 import { requireActiveBilling } from "../../shared/billing/billing.guard.js";
-import { createEntity, getEntities } from "./entity.controller.js";
 import { cache } from "../../shared/cache/cache.middleware.js";
 
-const router = express.Router();
+import {
+  createEntity,
+  getEntities,
+  getEntityById,
+  updateEntity,
+  deleteEntity,
+  restoreEntity,
+} from "./entity.controller.js";
 
-/*
-  Middleware Order:
-  1️⃣ protect
-  2️⃣ requireActiveBilling
-  3️⃣ authorize
-  4️⃣ cache (for GET)
-  5️⃣ controller
-*/
+const router: Router = express.Router();
 
-// ===============================
-// CREATE ENTITY (Paid Feature)
-// ===============================
+/* =====================================================
+   HELPERS
+===================================================== */
+
+const asyncHandler =
+  (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>): RequestHandler =>
+  (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+
+const validateObjectId = (paramName: string): RequestHandler =>
+  (req, res, next) => {
+    const id = req.params[paramName] as string | undefined;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code:    "INVALID_ID",
+          message: `Invalid ${paramName} format`,
+        },
+      });
+      return;
+    }
+    next();
+  };
+
+/* =====================================================
+   CACHE KEY BUILDERS
+===================================================== */
+
+const listCacheKey: RequestHandler = cache(
+  (req: Request) => {
+    const user  = req.user;
+    const orgId =
+      (typeof user?.organizationId === "string" && user.organizationId) ||
+      (user?.organizationId ? String(user.organizationId) : "unknown");
+
+    const q = req.query as Record<string, string | undefined>;
+
+    return (
+      "entities:list:org=" + orgId +
+      ":page="   + (q.page  ?? "1") +
+      ":limit="  + (q.limit ?? "10") +
+      ":type="   + (q.type  ?? "") +
+      ":search=" + (q.search ?? "").trim().toLowerCase() +
+      ":sort="   + (q.sort  ?? "")
+    );
+  },
+  { ttl: 60 }
+);
+
+const detailCacheKey: RequestHandler = cache(
+  (req: Request) => {
+    const user  = req.user;
+    const orgId =
+      (typeof user?.organizationId === "string" && user.organizationId) ||
+      (user?.organizationId ? String(user.organizationId) : "unknown");
+
+    const id = req.params.id ?? "unknown";
+    return "entities:detail:" + orgId + ":" + id;
+  },
+  { ttl: 120 }
+);
+
+/* =====================================================
+   GLOBAL MIDDLEWARE
+===================================================== */
+
+router.use(protect as RequestHandler);
+router.use(requireActiveBilling as RequestHandler);
+
+/* =====================================================
+   COLLECTION ROUTES
+===================================================== */
+
+/**
+ * @route   POST /entities
+ * @desc    Create a new entity
+ * @access  Authenticated + active billing + CREATE_ENTITY
+ */
 router.post(
   "/",
-  protect as RequestHandler,
-  requireActiveBilling as RequestHandler,
   authorize("CREATE_ENTITY") as RequestHandler,
-  createEntity as RequestHandler
+  asyncHandler((req, res, next) => createEntity(req as never, res, next))
 );
 
-// ===============================
-// GET ENTITIES (Billing + Cached)
-// ===============================
-
-const entityCache: RequestHandler = cache(
-  (req) => {
-    const user = (req as any).user;
-    return 'entities:${user?.organizationId ?? "unknown"}';
-  },
-  60
-);
-
+/**
+ * @route   GET /entities
+ * @desc    List org entities with pagination + filters
+ * @access  Authenticated + active billing + READ_ENTITY
+ * @query   page, limit, search, sort, type
+ * @cache   60s keyed by org + filter params
+ */
 router.get(
   "/",
-  protect as RequestHandler,
-  requireActiveBilling as RequestHandler,
   authorize("READ_ENTITY") as RequestHandler,
-  entityCache,
-  getEntities as RequestHandler
+  listCacheKey,
+  asyncHandler((req, res, next) => getEntities(req as never, res, next))
+);
+
+/* =====================================================
+   ITEM ROUTES
+===================================================== */
+
+/**
+ * @route   GET /entities/:id
+ * @desc    Get a single entity by ID
+ * @access  Authenticated + active billing + READ_ENTITY
+ * @cache   120s
+ */
+router.get(
+  "/:id",
+  authorize("READ_ENTITY") as RequestHandler,
+  validateObjectId("id"),
+  detailCacheKey,
+  asyncHandler((req, res, next) => getEntityById(req as never, res, next))
+);
+
+/**
+ * @route   PATCH /entities/:id
+ * @desc    Update entity fields
+ * @access  Authenticated + active billing + UPDATE_ENTITY
+ */
+router.patch(
+  "/:id",
+  authorize("UPDATE_ENTITY") as RequestHandler,
+  validateObjectId("id"),
+  asyncHandler((req, res, next) => updateEntity(req as never, res, next))
+);
+
+/**
+ * @route   DELETE /entities/:id
+ * @desc    Soft-delete an entity
+ * @access  Authenticated + active billing + DELETE_ENTITY
+ */
+router.delete(
+  "/:id",
+  authorize("DELETE_ENTITY") as RequestHandler,
+  validateObjectId("id"),
+  asyncHandler((req, res, next) => deleteEntity(req as never, res, next))
+);
+
+/**
+ * @route   POST /entities/:id/restore
+ * @desc    Restore a soft-deleted entity
+ * @access  Authenticated + active billing + DELETE_ENTITY
+ */
+router.post(
+  "/:id/restore",
+  authorize("DELETE_ENTITY") as RequestHandler,
+  validateObjectId("id"),
+  asyncHandler((req, res, next) => restoreEntity(req as never, res, next))
 );
 
 export default router;

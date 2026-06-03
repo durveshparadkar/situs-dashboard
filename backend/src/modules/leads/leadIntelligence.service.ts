@@ -1,6 +1,8 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import Lead from "./lead.model.js";
 import User from "../users/user.model.js";
+
+/* ================= TYPES ================= */
 
 interface CurrentUser {
   _id: string;
@@ -11,45 +13,55 @@ interface CurrentUser {
 
 type LeadFilter = Record<string, unknown>;
 
+/* ================= HELPERS ================= */
+
+function toObjectId(id: string): Types.ObjectId {
+  if (!Types.ObjectId.isValid(id)) {
+    throw new Error("Invalid ObjectId");
+  }
+  return new Types.ObjectId(id);
+}
+
+/* ======================================================
+   🚀 LEAD INTELLIGENCE SERVICE (ENTERPRISE)
+====================================================== */
 class LeadIntelligenceService {
-  /* =====================================================
-     VISIBILITY FILTER (ALIGNED WITH UPPERCASE ROLES)
-  ===================================================== */
+  /* ======================================================
+     🔐 VISIBILITY FILTER
+  ====================================================== */
 
   private async buildVisibilityFilter(
     currentUser: CurrentUser
   ): Promise<LeadFilter> {
-    const orgId = new mongoose.Types.ObjectId(
-      currentUser.organizationId
-    );
+    // SUPER_ADMIN → no restriction
+    if (currentUser.role === "SUPER_ADMIN") {
+      return {};
+    }
+
+    const orgId = toObjectId(currentUser.organizationId);
 
     const baseFilter: LeadFilter = {
       organizationId: orgId,
     };
 
-    // SUPER_ADMIN sees everything (platform-level)
-    if (currentUser.role === "SUPER_ADMIN") {
-      return {};
-    }
-
-    // ORG_ADMIN sees entire organization
+    // ORG_ADMIN → full org access
     if (currentUser.role === "ORG_ADMIN") {
       return baseFilter;
     }
 
-    // AGENT sees only assigned leads
+    // AGENT → only own leads
     if (currentUser.role === "AGENT") {
       return {
         ...baseFilter,
-        assignedTo: new mongoose.Types.ObjectId(currentUser._id),
+        assignedTo: toObjectId(currentUser._id),
       };
     }
 
-    // MANAGER sees own + team
+    // MANAGER → own + team
     if (currentUser.role === "MANAGER") {
       const teamMembers = await User.find({
         organizationId: orgId,
-        managerId: new mongoose.Types.ObjectId(currentUser._id),
+        managerId: toObjectId(currentUser._id),
       })
         .select("_id")
         .lean();
@@ -59,10 +71,7 @@ class LeadIntelligenceService {
       return {
         ...baseFilter,
         assignedTo: {
-          $in: [
-            new mongoose.Types.ObjectId(currentUser._id),
-            ...teamIds,
-          ],
+          $in: [toObjectId(currentUser._id), ...teamIds],
         },
       };
     }
@@ -70,13 +79,12 @@ class LeadIntelligenceService {
     return baseFilter;
   }
 
-  /* =====================================================
-     INTELLIGENCE OVERVIEW
-  ===================================================== */
+  /* ======================================================
+     📊 OVERVIEW
+  ====================================================== */
 
   async getOverview(currentUser: CurrentUser) {
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
+    const visibility = await this.buildVisibilityFilter(currentUser);
 
     const [
       totalLeads,
@@ -87,40 +95,40 @@ class LeadIntelligenceService {
       stale,
       archived,
     ] = await Promise.all([
-      Lead.countDocuments(visibilityFilter),
+      Lead.countDocuments(visibility),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         brainPriority: "critical",
         isArchived: false,
       }),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         brainPriority: "high",
         isArchived: false,
       }),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         brainPriority: "medium",
         isArchived: false,
       }),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         brainPriority: "low",
         isArchived: false,
       }),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         isStale: true,
         isArchived: false,
       }),
 
       Lead.countDocuments({
-        ...visibilityFilter,
+        ...visibility,
         isArchived: true,
       }),
     ]);
@@ -139,16 +147,15 @@ class LeadIntelligenceService {
     };
   }
 
-  /* =====================================================
-     HIGH PRIORITY LEADS
-  ===================================================== */
+  /* ======================================================
+     🔥 HIGH PRIORITY LEADS
+  ====================================================== */
 
   async getHighPriorityLeads(currentUser: CurrentUser) {
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
+    const visibility = await this.buildVisibilityFilter(currentUser);
 
     return Lead.find({
-      ...visibilityFilter,
+      ...visibility,
       brainPriority: { $in: ["critical", "high"] },
       isArchived: false,
     })
@@ -157,19 +164,19 @@ class LeadIntelligenceService {
         leadScore: -1,
         lastActivityAt: 1,
       })
-      .limit(50);
+      .limit(50)
+      .lean(); // 🚀 performance
   }
 
-  /* =====================================================
-     STALE LEADS
-  ===================================================== */
+  /* ======================================================
+     💤 STALE LEADS
+  ====================================================== */
 
   async getStaleLeads(currentUser: CurrentUser) {
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
+    const visibility = await this.buildVisibilityFilter(currentUser);
 
     return Lead.find({
-      ...visibilityFilter,
+      ...visibility,
       isStale: true,
       isArchived: false,
     })
@@ -177,29 +184,28 @@ class LeadIntelligenceService {
         lastActivityAt: 1,
         leadScore: -1,
       })
-      .limit(50);
+      .limit(50)
+      .lean();
   }
 
-  /* =====================================================
-     AGENT PERFORMANCE INTELLIGENCE
-  ===================================================== */
+  /* ======================================================
+     👥 AGENT PERFORMANCE
+  ====================================================== */
 
   async getAgentPerformance(currentUser: CurrentUser) {
     if (
-      currentUser.role !== "ORG_ADMIN" &&
-      currentUser.role !== "MANAGER" &&
-      currentUser.role !== "SUPER_ADMIN"
+      !["ORG_ADMIN", "MANAGER", "SUPER_ADMIN"].includes(
+        currentUser.role
+      )
     ) {
-      const err: any = new Error("Access denied");
+      const err = new Error("Access denied") as Error & { status?: number };
       err.status = 403;
       throw err;
     }
 
-    const orgId = new mongoose.Types.ObjectId(
-      currentUser.organizationId
-    );
+    const orgId = toObjectId(currentUser.organizationId);
 
-    const pipeline: any[] = [
+    const pipeline: mongoose.PipelineStage[] = [
       {
         $match: {
           organizationId: orgId,
@@ -250,7 +256,7 @@ class LeadIntelligenceService {
       { $sort: { totalLeads: -1 } },
     ];
 
-    return Lead.aggregate(pipeline as any[]);
+    return Lead.aggregate(pipeline);
   }
 }
 

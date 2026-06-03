@@ -1,14 +1,14 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Types, Model } from "mongoose";
 import { LeadSource } from "../../shared/enums/lead.enums.js";
 
 /* =====================================================
-   INTERFACE
+   TYPES
 ===================================================== */
 
-export interface ILead extends Document {
+export interface ILead {
   name: string;
   phone: string;
-  email?: string;
+  email?: string | null;
   budget: number;
   interestedLocation: string;
   source: LeadSource;
@@ -21,10 +21,6 @@ export interface ILead extends Document {
 
   probability: number;
 
-  /* ===============================
-     AI INTELLIGENCE CORE
-  =============================== */
-  
   activityCount: number;
   leadScore: number;
   isStale: boolean;
@@ -44,21 +40,13 @@ export interface ILead extends Document {
     analyzedAt: Date;
   } | null;
 
-  /* ===============================
-     🧠 BRAIN WORKER STATE
-  =============================== */
-
   brainStatus: "idle" | "processing" | "completed" | "failed";
-  lastBrainRunAt?: Date;
-
-  /* ===============================
-     🚨 ESCALATION SYSTEM
-  =============================== */
+  lastBrainRunAt?: Date | null;
 
   escalation?: {
     recommended: boolean;
-    reason: string;
-    recommendedAt: Date;
+    reason?: string;
+    recommendedAt?: Date;
     approved: boolean;
     approvedAt?: Date;
     approvedBy?: Types.ObjectId;
@@ -71,19 +59,21 @@ export interface ILead extends Document {
   updatedAt: Date;
 }
 
+type LeadDocument = mongoose.Document<unknown, any, ILead> & ILead;
+
 /* =====================================================
-   🧠 Brain Snapshot Subschemas
+   SUBSCHEMAS
 ===================================================== */
 
 const BrainSignalSchema = new Schema(
   {
-    type: { type: String, required: true },
+    type: { type: String, required: true, trim: true },
     severity: {
       type: String,
       enum: ["low", "medium", "high", "critical"],
       required: true,
     },
-    message: { type: String, required: true },
+    message: { type: String, required: true, trim: true },
   },
   { _id: false }
 );
@@ -96,51 +86,22 @@ const BrainSnapshotSchema = new Schema(
       enum: ["low", "medium", "high", "critical"],
       required: true,
     },
-    signals: {
-      type: [BrainSignalSchema],
-      default: [],
-    },
-    recommendedActions: {
-      type: [String],
-      default: [],
-    },
-    analyzedAt: {
-      type: Date,
-      default: Date.now,
-    },
+    signals: { type: [BrainSignalSchema], default: [] },
+    recommendedActions: { type: [String], default: [] },
+    analyzedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 );
 
-/* =====================================================
-   🚨 Escalation Subschema
-===================================================== */
-
 const EscalationSchema = new Schema(
   {
-    recommended: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-    reason: {
-      type: String,
-      trim: true,
-    },
-    recommendedAt: {
-      type: Date,
-      index: true,
-    },
-    approved: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-    approvedAt: {
-      type: Date,
-    },
+    recommended: { type: Boolean, default: false, index: true },
+    reason: { type: String, trim: true },
+    recommendedAt: { type: Date },
+    approved: { type: Boolean, default: false, index: true },
+    approvedAt: { type: Date },
     approvedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
     },
   },
@@ -148,35 +109,66 @@ const EscalationSchema = new Schema(
 );
 
 /* =====================================================
-   LEAD SCHEMA
+   MAIN SCHEMA
 ===================================================== */
 
-const LeadSchema = new Schema<ILead>(
+const LeadSchema = new Schema<LeadDocument>(
   {
-    /* ================= BASIC INFO ================= */
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      default: "Unnamed Lead",
+      index: true,
+    },
 
-    name: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, index: true },
-    email: { type: String, lowercase: true, trim: true },
-    budget: { type: Number, required: true, index: true },
-    interestedLocation: { type: String, required: true, index: true },
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
+
+    email: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: null,
+      index: true,
+    },
+
+    budget: {
+      type: Number,
+      required: true,
+      min: 0,
+      index: true,
+    },
+
+    interestedLocation: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
+
     source: {
       type: String,
       enum: Object.values(LeadSource),
       required: true,
+      index: true,
     },
 
     /* ================= MULTI-TENANT ================= */
 
     organizationId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Organization",
       required: true,
       index: true,
     },
 
     assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
@@ -185,15 +177,16 @@ const LeadSchema = new Schema<ILead>(
     /* ================= PIPELINE ================= */
 
     pipelineId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Pipeline",
       required: true,
       index: true,
     },
 
     stageId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       required: true,
+      index: true,
     },
 
     probability: {
@@ -203,12 +196,9 @@ const LeadSchema = new Schema<ILead>(
       default: 0,
     },
 
-    /* ================= AI CORE ================= */
-    
-    activityCount: {
-  type: Number,
-  default: 0,
-},
+    /* ================= AI ================= */
+
+    activityCount: { type: Number, default: 0 },
 
     leadScore: {
       type: Number,
@@ -218,11 +208,7 @@ const LeadSchema = new Schema<ILead>(
       index: true,
     },
 
-    isStale: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
+    isStale: { type: Boolean, default: false, index: true },
 
     lastActivityAt: {
       type: Date,
@@ -242,8 +228,6 @@ const LeadSchema = new Schema<ILead>(
       default: null,
     },
 
-    /* ================= BRAIN WORKER ================= */
-
     brainStatus: {
       type: String,
       enum: ["idle", "processing", "completed", "failed"],
@@ -253,17 +237,14 @@ const LeadSchema = new Schema<ILead>(
 
     lastBrainRunAt: {
       type: Date,
+      default: null,
       index: true,
     },
-
-    /* ================= ESCALATION ================= */
 
     escalation: {
       type: EscalationSchema,
       default: null,
     },
-
-    /* ================= OTHER ================= */
 
     notes: { type: String, trim: true },
 
@@ -273,33 +254,67 @@ const LeadSchema = new Schema<ILead>(
       index: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    minimize: false,
+  }
 );
 
 /* =====================================================
-   PERFORMANCE INDEXES
+   🔥 DATA SANITY (FIXED — NO TS ERRORS)
 ===================================================== */
 
+LeadSchema.pre("validate", function () {
+  const lead = this as LeadDocument;
+
+  if (!lead.name?.trim()) {
+    lead.name = "Unnamed Lead";
+  }
+
+  if (lead.email) {
+    lead.email = lead.email.toLowerCase().trim();
+  }
+
+  if (lead.phone) {
+    lead.phone = lead.phone.trim();
+  }
+});
+
+/* =====================================================
+   🔥 ENTERPRISE INDEXES
+===================================================== */
+
+// multi-tenant queries
 LeadSchema.index({ organizationId: 1, assignedTo: 1 });
 LeadSchema.index({ organizationId: 1, isArchived: 1 });
-LeadSchema.index({ pipelineId: 1, stageId: 1 });
-LeadSchema.index({ source: 1, createdAt: -1 });
+
+// analytics
 LeadSchema.index({ organizationId: 1, leadScore: -1 });
-LeadSchema.index({ organizationId: 1, isStale: 1 });
-LeadSchema.index({ organizationId: 1, brainPriority: 1 });
+LeadSchema.index({ organizationId: 1, lastActivityAt: -1 });
+
+// pipeline
+LeadSchema.index({ pipelineId: 1, stageId: 1 });
+
+// AI prioritization
 LeadSchema.index({ organizationId: 1, brainPriority: 1, isArchived: 1 });
 LeadSchema.index({ brainStatus: 1, lastBrainRunAt: -1 });
 
-// 🚨 Escalation filtering
+// escalation
 LeadSchema.index({ organizationId: 1, "escalation.recommended": 1 });
 LeadSchema.index({ organizationId: 1, "escalation.approved": 1 });
 
+// 🚀 dedup (same phone per org)
+LeadSchema.index(
+  { organizationId: 1, phone: 1 },
+  { unique: false }
+);
+
 /* =====================================================
-   EXPORT
+   MODEL
 ===================================================== */
 
-const Lead =
-  mongoose.models.Lead ||
-  mongoose.model<ILead>("Lead", LeadSchema);
+const Lead: Model<LeadDocument> =
+  (mongoose.models.Lead as Model<LeadDocument>) ||
+  mongoose.model<LeadDocument>("Lead", LeadSchema);
 
 export default Lead;

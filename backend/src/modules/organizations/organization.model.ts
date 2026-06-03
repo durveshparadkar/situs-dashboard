@@ -1,9 +1,8 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Types, Model } from "mongoose";
+import type { HydratedDocument } from "mongoose";
 import { createPipeline } from "../pipelines/pipeline.service.js";
 
-/* ===============================
-   TYPES
-================================ */
+/* ================= TYPES ================= */
 
 export type OrganizationPlan =
   | "SMALL_BUSINESS"
@@ -16,32 +15,60 @@ export type BillingStatus =
   | "PAST_DUE"
   | "CANCELED";
 
-export interface IOrganization extends Document {
+export interface IOrganization {
   name: string;
+  slug: string; // 🔥 unique identifier (important for SaaS URLs)
+
   plan: OrganizationPlan;
   billingStatus: BillingStatus;
+
   isTrial: boolean;
-  trialEndsAt?: Date | undefined;
-  graceUntil?: Date | undefined;
-  subscriptionId?: Types.ObjectId | undefined;
+  trialEndsAt: Date | null;
+  graceUntil: Date | null;
+
+  subscriptionId?: Types.ObjectId | null;
+
+  /* 🔥 ENTERPRISE FLAGS */
+  isActive: boolean;
+  isDeleted: boolean;
+
+  /* 🔥 SETTINGS (future-ready) */
+  settings?: {
+    timezone?: string;
+    currency?: string;
+  };
+
   createdAt: Date;
   updatedAt: Date;
 }
 
-/* ===============================
-   SCHEMA
-================================ */
+type OrgDoc = HydratedDocument<IOrganization>;
+
+/* ================= SCHEMA ================= */
 
 const organizationSchema = new Schema<IOrganization>(
   {
+    /* ================= BASIC ================= */
+
     name: {
       type: String,
-      required: [true, "Organization name is required"],
-      unique: true,
+      required: true,
       trim: true,
-      minlength: 2,
+      minlength: 1,
       maxlength: 100,
+      index: true,
     },
+
+    slug: {
+      type: String,
+      required: true,
+      unique: true, // 🔥 VERY IMPORTANT
+      lowercase: true,
+      trim: true,
+      index: true,
+    },
+
+    /* ================= PLAN ================= */
 
     plan: {
       type: String,
@@ -58,80 +85,139 @@ const organizationSchema = new Schema<IOrganization>(
       index: true,
     },
 
+    /* ================= BILLING ================= */
+
     isTrial: {
       type: Boolean,
       default: true,
+      index: true,
     },
 
     trialEndsAt: {
       type: Date,
+      default: null,
       index: true,
     },
 
     graceUntil: {
       type: Date,
+      default: null,
       index: true,
     },
 
     subscriptionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Subscription",
+      default: null,
       index: true,
+    },
+
+    /* ================= FLAGS ================= */
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    /* ================= SETTINGS ================= */
+
+    settings: {
+      timezone: { type: String, default: "UTC" },
+      currency: { type: String, default: "USD" },
     },
   },
   {
     timestamps: true,
+    minimize: false,
   }
 );
 
-/* ===============================
-   AUTO BILLING LOGIC
-   (ASYNC STYLE - NO next())
-================================ */
+/* ================= INDEXES (🔥 SCALE READY) ================= */
 
-organizationSchema.pre("save", async function () {
-  const org = this as IOrganization;
+organizationSchema.index({ slug: 1 }, { unique: true });
+organizationSchema.index({ billingStatus: 1, isActive: 1 });
+organizationSchema.index({ plan: 1, isActive: 1 });
+
+/* ================= HELPERS ================= */
+
+function generateSlug(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
+/* ================= NAME + SLUG SAFETY ================= */
+
+organizationSchema.pre("validate", function () {
+  const org = this as OrgDoc;
+
+  if (!org.name?.trim()) {
+    org.name = "Default Organization";
+  }
+
+  if (!org.slug) {
+    org.slug = generateSlug(org.name);
+  }
+});
+
+/* ================= BILLING LOGIC ================= */
+
+organizationSchema.pre("save", function () {
+  const org = this as OrgDoc;
   const now = new Date();
 
+  /* 🔥 TRIAL INIT */
   if (org.isNew && org.isTrial && !org.trialEndsAt) {
     org.trialEndsAt = new Date(
       now.getTime() + 14 * 24 * 60 * 60 * 1000
     );
   }
 
+  /* 🔥 TRIAL STATE */
   if (org.isTrial) {
     org.billingStatus = "TRIAL";
   }
 
-  if (
-    org.isTrial &&
-    org.trialEndsAt &&
-    org.trialEndsAt < now
-  ) {
+  /* 🔥 TRIAL EXPIRED */
+  if (org.isTrial && org.trialEndsAt && org.trialEndsAt < now) {
     org.isTrial = false;
     org.billingStatus = "PAST_DUE";
   }
 
-  if (
-    org.billingStatus === "PAST_DUE" &&
-    !org.graceUntil
-  ) {
+  /* 🔥 GRACE PERIOD */
+  if (org.billingStatus === "PAST_DUE" && !org.graceUntil) {
     org.graceUntil = new Date(
       now.getTime() + 7 * 24 * 60 * 60 * 1000
     );
   }
 
+  /* 🔥 ACTIVE RESET */
   if (org.billingStatus === "ACTIVE") {
-    org.graceUntil = undefined;
+    org.graceUntil = null;
     org.isTrial = false;
+  }
+
+  /* 🔥 AUTO DEACTIVATE */
+  if (
+    org.billingStatus === "PAST_DUE" &&
+    org.graceUntil &&
+    org.graceUntil < now
+  ) {
+    org.isActive = false;
   }
 });
 
-/* ===============================
-   AUTO CREATE DEFAULT PIPELINE
-================================ */
+/* ================= POST CREATE HOOK ================= */
 
-organizationSchema.post("save", async function (doc: IOrganization) {
+organizationSchema.post("save", async function (doc: OrgDoc) {
   if (!doc.isNew) return;
 
   try {
@@ -149,28 +235,17 @@ organizationSchema.post("save", async function (doc: IOrganization) {
       ],
     });
 
-    console.log(
-      "Default pipeline created for organization:",
-      doc.name
-    );
+    console.log("✅ Default pipeline created for org:", doc.slug);
   } catch (error) {
-    console.error(
-      "Failed to create default pipeline:",
-      error
-    );
+    console.error("❌ Pipeline creation failed:", error);
   }
 });
 
-/* ===============================
-   MODEL EXPORT
-================================ */
+/* ================= EXPORT ================= */
 
-const Organization =
+const Organization: Model<IOrganization> =
   mongoose.models.Organization ||
-  mongoose.model<IOrganization>(
-    "Organization",
-    organizationSchema
-  );
+  mongoose.model<IOrganization>("Organization", organizationSchema);
 
 export default Organization;
 

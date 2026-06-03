@@ -1,56 +1,88 @@
 {
   "compilerOptions": {
-    /* ==============================
-       Language & Runtime
-    ============================== */
     "target": "ES2022",
     "lib": ["ES2022"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
-    /* ==============================
-       Project Structure
-    ============================== */
     "rootDir": "./src",
     "outDir": "./dist",
     "sourceMap": true,
     "declaration": false,
+    "removeComments": false,
 
-    /* ==============================
-       Strictness
-    ============================== */
     "strict": true,
     "noImplicitAny": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
 
-    /* ==============================
-       Module Interop
-    ============================== */
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
+    "verbatimModuleSyntax": false,
 
-    /* ==============================
-       Node Environment
-    ============================== */
     "types": ["node"],
+    "typeRoots": ["./node_modules/@types", "./src/types"],
     "allowImportingTsExtensions": false,
 
-    /* ==============================
-       Performance
-    ============================== */
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@modules/*": ["src/modules/*"],
+      "@shared/*": ["src/shared/*"],
+      "@config/*": ["src/config/*"],
+      "@utils/*": ["src/utils/*"],
+      "@types/*": ["src/types/*"]
+    },
+
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
 
-    /* ==============================
-       ESM Support
-    ============================== */
-    "isolatedModules": true
+    "isolatedModules": true,
+
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
 
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"]
-}
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.json"
+  ],
 
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/__tests__/**",
+    "**/__mocks__/**"
+  ],
+
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node",
+    "transpileOnly": true,
+    "files": true
+  }
+}
 

@@ -1,299 +1,706 @@
-import { Request, Response } from "express";
+// invite.controller.ts
+import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import { z } from "zod";
-import Invite from "./invite.model.js";
+
+import Invite, { InviteDocument } from "./invite.model.js";
 import User from "../users/user.model.js";
 import { logAudit } from "../../shared/audits/audit.logger.js";
 import { emailQueue } from "../../config/queue.js";
+import { dbLogger } from "../../utils/logger.js";
 
-/* ===============================
-   TYPES
-================================ */
+/* =====================================================
+   ERRORS
+===================================================== */
 
-interface AuthRequest extends Request {
-  user?: {
-    _id: string;
-    email: string;
-    organizationId?: string;
+class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 400,
+    public code: string = "APP_ERROR",
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+
+class ValidationError extends AppError {
+  constructor(details: Array<{ field: string; message: string }>) {
+    super("Validation failed", 400, "VALIDATION_ERROR", details);
+    this.name = "ValidationError";
+  }
+}
+
+/* =====================================================
+   CONFIG
+===================================================== */
+
+const CONFIG = {
+  inviteExpiryHours:        24,
+  tokenBytes:               32,
+  maxInvitesPerOrgPerDay:   100,
+  maxInvitesPerEmailPerDay: 3,
+  pageDefault:              1,
+  limitDefault:             50,
+  limitMax:                 200,
+} as const;
+
+const HttpStatus = {
+  OK:                200,
+  CREATED:           201,
+  BAD_REQUEST:       400,
+  UNAUTHORIZED:      401,
+  FORBIDDEN:         403,
+  NOT_FOUND:         404,
+  CONFLICT:          409,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL:          500,
+} as const;
+
+/* =====================================================
+   ZOD SCHEMAS
+===================================================== */
+
+const VALID_ROLES = ["AGENT", "USER", "MANAGER", "ADMIN"] as const;
+
+const createInviteSchema = z.object({
+  email:   z.string().email("Invalid email format").trim().toLowerCase(),
+  role:    z.enum(VALID_ROLES).optional().default("AGENT"),
+  message: z.string().trim().max(500).optional(),
+}).strict();
+
+const acceptInviteSchema = z.object({
+  token: z
+    .string()
+    .min(20, "Invalid token")
+    .max(200, "Invalid token")
+    .regex(/^[a-f0-9]+$/i, "Invalid token format"),
+}).strict();
+
+const listInvitesQuerySchema = z.object({
+  page:   z.coerce.number().int().min(1).optional().default(1),
+  limit:  z.coerce.number().int().min(1).max(CONFIG.limitMax).optional().default(50),
+  status: z.enum(["active", "used", "revoked", "expired", "all"]).optional().default("all"),
+}).strict();
+
+/* =====================================================
+   HELPERS
+===================================================== */
+
+interface InviteActor {
+  userId: string;
+  email: string;
+  organizationId: string;
+  role: string;
+}
+
+/**
+ * Extract & validate the authenticated user from the globally-augmented
+ * req.user. Handles both id and _id, normalizes to strings.
+ */
+function requireAuth(req: Request): InviteActor {
+  const u = req.user;
+  if (!u) {
+    throw new AppError("Unauthorized", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED");
+  }
+
+  const userId =
+    (typeof u.id === "string" && u.id) ||
+    (u._id ? u._id.toString() : "");
+
+  const organizationId =
+    typeof u.organizationId === "string"
+      ? u.organizationId
+      : String(u.organizationId ?? "");
+
+  const email = typeof u.email === "string" ? u.email : "";
+
+  if (!userId || !organizationId) {
+    throw new AppError(
+      "User missing identity or organization",
+      HttpStatus.UNAUTHORIZED,
+      "UNAUTHORIZED"
+    );
+  }
+
+  return {
+    userId,
+    email,
+    organizationId,
+    role: String(u.role ?? "USER").toUpperCase(),
   };
 }
 
-const INVITE_EXPIRY_HOURS = 24;
+function isValidObjectId(id: string | undefined | null): boolean {
+  if (!id) return false;
+  return mongoose.Types.ObjectId.isValid(id);
+}
 
-/* ===============================
-   VALIDATION SCHEMAS
-================================ */
+function requireObjectId(req: Request, paramName: string = "id"): string {
+  const id = req.params[paramName] as string | undefined;
+  if (!id || !isValidObjectId(id)) {
+    throw new AppError(
+      `Invalid ${paramName}`,
+      HttpStatus.BAD_REQUEST,
+      "INVALID_ID"
+    );
+  }
+  return id;
+}
 
-const createInviteSchema = z.object({
-  email: z.string().email(),
-  role: z.enum(["AGENT", "USER"]).optional(),
-});
+function getRequestContext(req: Request) {
+  const xff = req.headers["x-forwarded-for"];
+  const xffString = Array.isArray(xff) ? xff[0] : xff;
 
-const acceptInviteSchema = z.object({
-  token: z.string().min(10),
-});
+  return {
+    ipAddress:
+      (req.ip || (typeof xffString === "string" ? xffString : "") || "")
+        .split(",")[0]
+        ?.trim(),
+    userAgent: req.get("user-agent") ?? undefined,
+    source:    "web" as const,
+    requestId: (req.headers["x-request-id"] as string) ?? undefined,
+  };
+}
 
-const revokeInviteSchema = z.object({
-  id: z.string().min(1),
-});
+function validate<T extends z.ZodTypeAny>(schema: T, data: unknown): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new ValidationError(
+      result.error.issues.map((e: z.ZodIssue) => ({
+        field:   e.path.length ? e.path.join(".") : "(root)",
+        message: e.message,
+      }))
+    );
+  }
+  return result.data;
+}
 
-/* ===============================
+/* ── Token helpers ── */
+function generateToken(): {
+  rawToken: string;
+  tokenHash: string;
+  tokenLastFour: string;
+} {
+  const rawToken      = crypto.randomBytes(CONFIG.tokenBytes).toString("hex");
+  const tokenHash     = Invite.hashToken(rawToken);
+  const tokenLastFour = rawToken.slice(-4);
+  return { rawToken, tokenHash, tokenLastFour };
+}
+
+async function enqueueInviteEmail(
+  to: string,
+  rawToken: string,
+  options: {
+    inviterEmail?: string;
+    orgName?: string;
+    message?: string;
+  } = {}
+): Promise<{ enqueued: boolean }> {
+  try {
+    await emailQueue.add(
+      "send-invite",
+      {
+        to,
+        subject:  "You're invited to SITUS",
+        template: "invite",
+        data: {
+          token:          rawToken,
+          inviterEmail:   options.inviterEmail,
+          orgName:        options.orgName,
+          customMessage:  options.message,
+          expiresInHours: CONFIG.inviteExpiryHours,
+        },
+      },
+      {
+        attempts: 5,
+        backoff: { type: "exponential", delay: 5_000 },
+      }
+    );
+    return { enqueued: true };
+  } catch (err) {
+    dbLogger.error(
+      `Invite email enqueue failed: to=${to} error=${(err as Error).message}`
+    );
+    return { enqueued: false };
+  }
+}
+
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+/* =====================================================
+   RATE LIMITING
+===================================================== */
+
+async function checkInviteRateLimits(
+  organizationId: string,
+  email:          string
+): Promise<void> {
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [orgCount, emailCount] = await Promise.all([
+    Invite.countDocuments({ organizationId, createdAt: { $gte: oneDayAgo } }),
+    Invite.countDocuments({ email,          createdAt: { $gte: oneDayAgo } }),
+  ]);
+
+  if (orgCount >= CONFIG.maxInvitesPerOrgPerDay) {
+    throw new AppError(
+      "Daily invite limit reached for your organization",
+      HttpStatus.TOO_MANY_REQUESTS,
+      "INVITE_RATE_LIMIT_ORG"
+    );
+  }
+
+  if (emailCount >= CONFIG.maxInvitesPerEmailPerDay) {
+    throw new AppError(
+      "This email has been invited too many times today. Try again later.",
+      HttpStatus.TOO_MANY_REQUESTS,
+      "INVITE_RATE_LIMIT_EMAIL"
+    );
+  }
+}
+
+/* =====================================================
    CREATE INVITE
-================================ */
+===================================================== */
 
-export const createInvite = async (req: AuthRequest, res: Response) => {
-  try {
-    const user = req.user;
+export const createInvite = asyncHandler(async (req, res) => {
+  const { userId, email: actorEmail, organizationId } = requireAuth(req);
 
-    if (!user?._id || !user?.organizationId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+  const { email, role, message } = validate(createInviteSchema, req.body);
 
-    const { email, role } = createInviteSchema.parse(req.body);
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // Check existing active invite (not used + not expired)
-    const existingInvite = await Invite.findOne({
-      email: normalizedEmail,
-      organizationId: user.organizationId,
-      usedAt: null,
-      expiresAt: { $gt: new Date() },
-    });
-
-    if (existingInvite) {
-      return res.status(409).json({
-        success: false,
-        message: "Active invite already exists",
-      });
-    }
-
-    const token = crypto.randomBytes(32).toString("hex");
-
-    const invite = await Invite.create({
-      email: normalizedEmail,
-      role: role ?? "AGENT",
-      token,
-      organizationId: user.organizationId,
-      createdBy: user._id,
-      expiresAt: new Date(
-        Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000
-      ),
-      usedAt: null,
-    });
-
-    // Send email
-    try {
-      await emailQueue.add("send-invite", {
-        to: normalizedEmail,
-        subject: "You're invited to SITUS",
-        body: `Join SITUS using this token: ${token}`,
-      });
-    } catch (err) {
-      console.error("EMAIL QUEUE ERROR:", err);
-    }
-
-    await logAudit({
-      organizationId: user.organizationId.toString(),
-      actorId: user._id.toString(),
-      action: "INVITE_CREATED",
-      resource: "INVITE",
-      resourceId: (invite._id as mongoose.Types.ObjectId).toString(),
-      meta: { email: normalizedEmail },
-      req,
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: "Invite created",
-      token, // return for testing
-    });
-  } catch (error) {
-    console.error("CREATE INVITE ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  /* Don't invite yourself */
+  if (actorEmail && email === actorEmail.toLowerCase()) {
+    throw new AppError(
+      "You cannot invite yourself",
+      HttpStatus.BAD_REQUEST,
+      "SELF_INVITE_NOT_ALLOWED"
+    );
   }
-};
 
-/* ===============================
+  /* Already a member? */
+  const existingMember = await User.findOne({
+    email,
+    organizationId,
+  }).lean();
+
+  if (existingMember) {
+    throw new AppError(
+      "This user is already a member of your organization",
+      HttpStatus.CONFLICT,
+      "USER_ALREADY_MEMBER"
+    );
+  }
+
+  await checkInviteRateLimits(organizationId, email);
+
+  const existingInvite = await Invite.findActiveForEmail(email, organizationId);
+
+  if (existingInvite) {
+    throw new AppError(
+      "An active invite already exists for this email",
+      HttpStatus.CONFLICT,
+      "INVITE_ALREADY_EXISTS"
+    );
+  }
+
+  /* ── Generate token — store hash, send raw ── */
+  const { rawToken, tokenHash, tokenLastFour } = generateToken();
+  const reqCtx = getRequestContext(req);
+
+  const invite = (await Invite.create({
+    email,
+    emailLower:    email.toLowerCase(),
+    role,
+    tokenHash,
+    tokenLastFour,
+    organizationId,
+    createdBy:     userId,
+    expiresAt:     new Date(Date.now() + CONFIG.inviteExpiryHours * 60 * 60 * 1000),
+    usedAt:        null,
+    revokedAt:     null,
+    resendCount:   0,
+    ...(message !== undefined && { message }),
+    createdFromIp: reqCtx.ipAddress ?? null,
+    userAgent:     reqCtx.userAgent ?? null,
+  })) as InviteDocument;
+
+  await logAudit({
+    organizationId,
+    userId,
+    action:         "INVITE_SENT" as never,
+    resource:       "INVITE" as never,
+    resourceId:     (invite._id as mongoose.Types.ObjectId).toString(),
+    after:          { email, role, expiresAt: invite.expiresAt },
+    requestContext: reqCtx,
+  } as never);
+
+  const { enqueued } = await enqueueInviteEmail(email, rawToken, {
+    inviterEmail: actorEmail,
+    ...(message !== undefined && { message }),
+  });
+
+  dbLogger.info(
+    `Invite created: org=${organizationId} email=${email} ` +
+    `role=${role} actor=${userId} emailQueued=${enqueued}`
+  );
+
+  const isProduction = process.env.NODE_ENV === "production";
+
+  res.status(HttpStatus.CREATED).json({
+    success: true,
+    message: enqueued
+      ? "Invite created and email queued"
+      : "Invite created (email delivery pending)",
+    data: {
+      id:            invite._id,
+      email:         invite.email,
+      role:          invite.role,
+      expiresAt:     invite.expiresAt,
+      tokenLastFour: invite.tokenLastFour,
+      ...(!isProduction && { token: rawToken }),
+    },
+  });
+});
+
+/* =====================================================
    GET INVITES
-================================ */
+===================================================== */
 
-export const getInvites = async (req: AuthRequest, res: Response) => {
-  try {
-    const user = req.user;
+export const getInvites = asyncHandler(async (req, res) => {
+  const { organizationId } = requireAuth(req);
 
-    if (!user?.organizationId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
+  const { page, limit, status } = validate(listInvitesQuerySchema, req.query);
+  const skip = (page - 1) * limit;
+  const now  = new Date();
+
+  const baseQuery: Record<string, unknown> = { organizationId };
+
+  switch (status) {
+    case "active":
+      Object.assign(baseQuery, {
+        usedAt:    null,
+        revokedAt: null,
+        expiresAt: { $gt: now },
       });
-    }
-
-    const invites = await Invite.find({
-      organizationId: user.organizationId,
-    }).sort({ createdAt: -1 });
-
-    return res.status(200).json({
-      success: true,
-      data: invites,
-    });
-  } catch (error) {
-    console.error("GET INVITES ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+      break;
+    case "used":
+      baseQuery.usedAt = { $ne: null };
+      break;
+    case "revoked":
+      baseQuery.revokedAt = { $ne: null };
+      break;
+    case "expired":
+      Object.assign(baseQuery, {
+        usedAt:    null,
+        revokedAt: null,
+        expiresAt: { $lte: now },
+      });
+      break;
+    case "all":
+    default:
+      break;
   }
-};
 
-/* ===============================
+  const [invites, total] = await Promise.all([
+    Invite.find(baseQuery)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("createdBy", "name email")
+      .lean(),
+    Invite.countDocuments(baseQuery),
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  res.status(HttpStatus.OK).json({
+    success: true,
+    data:    invites,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    },
+  });
+});
+
+/* =====================================================
    ACCEPT INVITE
-================================ */
+===================================================== */
 
-export const acceptInvite = async (req: AuthRequest, res: Response) => {
+export const acceptInvite = asyncHandler(async (req, res) => {
+  const { userId, email: userEmail } = requireAuth(req);
+
+  if (!userEmail) {
+    throw new AppError(
+      "User missing email — cannot accept invite",
+      HttpStatus.UNAUTHORIZED,
+      "UNAUTHORIZED"
+    );
+  }
+
+  const { token: rawToken } = validate(acceptInviteSchema, req.body);
+
+  const session = await mongoose.startSession();
+
   try {
-    const user = req.user;
+    let acceptedInvite: InviteDocument | null = null;
+    const reqCtx = getRequestContext(req);
 
-    if (!user?._id || !user?.email) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
+    await session.withTransaction(async () => {
+      /* ── Look up by token hash ── */
+      const tokenHash = Invite.hashToken(rawToken);
+      const invite    = await Invite.findOne({ tokenHash }).session(session);
 
-    const { token } = acceptInviteSchema.parse(req.body);
+      if (!invite) {
+        throw new AppError(
+          "Invite not found",
+          HttpStatus.NOT_FOUND,
+          "INVITE_NOT_FOUND"
+        );
+      }
 
-    const invite = await Invite.findOne({ token });
+      if (invite.usedAt) {
+        throw new AppError(
+          "Invite has already been accepted",
+          HttpStatus.BAD_REQUEST,
+          "INVITE_ALREADY_USED"
+        );
+      }
 
-    if (!invite) {
-      return res.status(404).json({
-        success: false,
-        message: "Invite not found",
-      });
-    }
+      if (invite.revokedAt) {
+        throw new AppError(
+          "Invite has been revoked",
+          HttpStatus.BAD_REQUEST,
+          "INVITE_REVOKED"
+        );
+      }
 
-    // Already used
-    if (invite.usedAt) {
-      return res.status(400).json({
-        success: false,
-        message: "Invite already used",
-      });
-    }
+      if (invite.expiresAt < new Date()) {
+        throw new AppError(
+          "Invite has expired",
+          HttpStatus.BAD_REQUEST,
+          "INVITE_EXPIRED"
+        );
+      }
 
-    // Expired
-    if (invite.expiresAt < new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: "Invite expired",
-      });
-    }
+      /* ── Constant-time email comparison ── */
+      const inviteEmail = invite.email.toLowerCase().trim();
+      const normalizedUserEmail = userEmail.toLowerCase().trim();
+      const inviteBuf = Buffer.from(inviteEmail);
+      const userBuf   = Buffer.from(normalizedUserEmail);
 
-    // Wrong user
-    if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
-      return res.status(403).json({
-        success: false,
-        message: "Invite not issued for this email",
-      });
-    }
+      const emailMatches =
+        inviteBuf.length === userBuf.length &&
+        crypto.timingSafeEqual(inviteBuf, userBuf);
 
-    // Attach user to org
-    await User.findByIdAndUpdate(user._id, {
-      organizationId: invite.organizationId,
-      role: invite.role,
+      if (!emailMatches) {
+        throw new AppError(
+          "This invite was issued to a different email address",
+          HttpStatus.FORBIDDEN,
+          "INVITE_EMAIL_MISMATCH"
+        );
+      }
+
+      await User.findByIdAndUpdate(
+        userId,
+        { $set: { organizationId: invite.organizationId, role: invite.role } },
+        { session }
+      );
+
+      invite.usedAt         = new Date();
+      invite.usedBy         = userId as never;
+      invite.acceptedFromIp = reqCtx.ipAddress ?? null;
+      await invite.save({ session });
+
+      acceptedInvite = invite;
     });
 
-    invite.usedAt = new Date();
-    await invite.save();
+    if (!acceptedInvite) {
+      throw new AppError(
+        "Transaction failed",
+        HttpStatus.INTERNAL,
+        "TRANSACTION_FAILED"
+      );
+    }
+
+    const finalized = acceptedInvite as InviteDocument;
 
     await logAudit({
-      organizationId: invite.organizationId.toString(),
-      actorId: user._id.toString(),
-      action: "INVITE_ACCEPTED",
-      resource: "INVITE",
-      resourceId: invite._id.toString(),
-      meta: { acceptedBy: user.email },
-      req,
-    });
+      organizationId: finalized.organizationId.toString(),
+      userId,
+      action:         "INVITE_ACCEPTED" as never,
+      resource:       "INVITE" as never,
+      resourceId:     (finalized._id as mongoose.Types.ObjectId).toString(),
+      after:          { acceptedBy: userEmail, role: finalized.role },
+      requestContext: reqCtx,
+    } as never);
 
-    return res.status(200).json({
+    dbLogger.info(
+      `Invite accepted: invite=${finalized._id} ` +
+      `user=${userId} org=${finalized.organizationId}`
+    );
+
+    res.status(HttpStatus.OK).json({
       success: true,
       message: "Invite accepted successfully",
+      data: {
+        organizationId: finalized.organizationId,
+        role:           finalized.role,
+      },
     });
-  } catch (error) {
-    console.error("ACCEPT INVITE ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } finally {
+    await session.endSession();
   }
-};
+});
 
-/* ===============================
+/* =====================================================
    REVOKE INVITE
-================================ */
+===================================================== */
 
-export const revokeInvite = async (req: AuthRequest, res: Response) => {
-  try {
-    const user = req.user;
+export const revokeInvite = asyncHandler(async (req, res) => {
+  const { userId, organizationId } = requireAuth(req);
+  const id = requireObjectId(req, "id");
 
-    if (!user?.organizationId || !user?._id) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
+  const invite = await Invite.findOne({
+    _id: id,
+    organizationId,
+  });
 
-    const { id } = revokeInviteSchema.parse(req.params);
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid invite ID",
-      });
-    }
-
-    const invite = await Invite.findOne({
-      _id: id,
-      organizationId: user.organizationId,
-      usedAt: null,
-    });
-
-    if (!invite) {
-      return res.status(404).json({
-        success: false,
-        message: "Invite not found or already used",
-      });
-    }
-
-    invite.usedAt = new Date(); // mark revoked as used
-    await invite.save();
-
-    await logAudit({
-      organizationId: user.organizationId.toString(),
-      actorId: user._id.toString(),
-      action: "INVITE_REVOKED",
-      resource: "INVITE",
-      resourceId: invite._id.toString(),
-      meta: { revokedEmail: invite.email },
-      req,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Invite revoked",
-    });
-  } catch (error) {
-    console.error("REVOKE INVITE ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  if (!invite) {
+    throw new AppError("Invite not found", HttpStatus.NOT_FOUND, "INVITE_NOT_FOUND");
   }
-};
 
+  if (invite.usedAt) {
+    throw new AppError(
+      "Cannot revoke an invite that has already been accepted",
+      HttpStatus.BAD_REQUEST,
+      "INVITE_ALREADY_USED"
+    );
+  }
 
+  if (invite.revokedAt) {
+    throw new AppError(
+      "Invite already revoked",
+      HttpStatus.CONFLICT,
+      "INVITE_ALREADY_REVOKED"
+    );
+  }
+
+  invite.revokedAt = new Date();
+  invite.revokedBy = userId as never;
+  await invite.save();
+
+  await logAudit({
+    organizationId,
+    userId,
+    action:         "INVITE_REVOKED" as never,
+    resource:       "INVITE" as never,
+    resourceId:     (invite._id as mongoose.Types.ObjectId).toString(),
+    after:          { revokedEmail: invite.email },
+    requestContext: getRequestContext(req),
+  } as never);
+
+  dbLogger.warn(
+    `Invite revoked: invite=${invite._id} email=${invite.email} ` +
+    `org=${organizationId} actor=${userId}`
+  );
+
+  res.status(HttpStatus.OK).json({
+    success: true,
+    message: "Invite revoked successfully",
+  });
+});
+
+/* =====================================================
+   RESEND INVITE
+===================================================== */
+
+export const resendInvite = asyncHandler(async (req, res) => {
+  const { userId, email: actorEmail, organizationId } = requireAuth(req);
+  const id = requireObjectId(req, "id");
+
+  const invite = await Invite.findOne({
+    _id:            id,
+    organizationId,
+    usedAt:         null,
+    revokedAt:      null,
+  });
+
+  if (!invite) {
+    throw new AppError(
+      "Active invite not found",
+      HttpStatus.NOT_FOUND,
+      "INVITE_NOT_FOUND"
+    );
+  }
+
+  if (!invite.canResend()) {
+    throw new AppError(
+      "Maximum resend limit reached for this invite",
+      HttpStatus.TOO_MANY_REQUESTS,
+      "RESEND_LIMIT_REACHED"
+    );
+  }
+
+  /* Always regenerate token on resend — old raw token is gone forever */
+  const { rawToken, tokenHash, tokenLastFour } = generateToken();
+
+  invite.tokenHash     = tokenHash;
+  invite.tokenLastFour = tokenLastFour;
+  invite.resendCount   = (invite.resendCount ?? 0) + 1;
+  invite.lastResentAt  = new Date();
+
+  /* Extend expiry if already expired */
+  if (invite.expiresAt < new Date()) {
+    invite.expiresAt = new Date(
+      Date.now() + CONFIG.inviteExpiryHours * 60 * 60 * 1000
+    );
+  }
+
+  await invite.save();
+
+  const { enqueued } = await enqueueInviteEmail(invite.email, rawToken, {
+    inviterEmail: actorEmail,
+  });
+
+  await logAudit({
+    organizationId,
+    userId,
+    action:         "INVITE_SENT" as never,
+    resource:       "INVITE" as never,
+    resourceId:     (invite._id as mongoose.Types.ObjectId).toString(),
+    after: {
+      resent:      true,
+      email:       invite.email,
+      resendCount: invite.resendCount,
+    },
+    requestContext: getRequestContext(req),
+  } as never);
+
+  dbLogger.info(
+    `Invite resent: invite=${invite._id} email=${invite.email} ` +
+    `resendCount=${invite.resendCount} emailQueued=${enqueued}`
+  );
+
+  res.status(HttpStatus.OK).json({
+    success: true,
+    message: enqueued
+      ? "Invite email resent"
+      : "Invite updated; email delivery pending",
+  });
+});
 
 

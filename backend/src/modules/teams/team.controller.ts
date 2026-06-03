@@ -1,129 +1,761 @@
-import { Request, Response } from "express";
+// team.controller.ts
+import type { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { z } from "zod";
-import Team from "./team.model.js";
+
+import teamService from "./team.service.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
 import { logAudit } from "../../shared/audits/audit.logger.js";
 import {
   AuditAction,
   AuditResource,
 } from "../audit/audit.model.js";
+import { dbLogger } from "../../utils/logger.js";
 
-/* ===============================
-   TYPES
-================================ */
+/* =====================================================
+   ERRORS
+===================================================== */
 
-interface AuthRequest extends Request {
-  user?: {
-    _id: string;
-    organizationId?: string;
+class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 400,
+    public code: string = "APP_ERROR",
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+
+class ValidationError extends AppError {
+  constructor(details: Array<{ field: string; message: string }>) {
+    super("Validation failed", 400, "VALIDATION_ERROR", details);
+    this.name = "ValidationError";
+  }
+}
+
+/* =====================================================
+   HTTP STATUS
+===================================================== */
+
+const HttpStatus = {
+  OK:           200,
+  CREATED:      201,
+  NO_CONTENT:   204,
+  BAD_REQUEST:  400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN:    403,
+  NOT_FOUND:    404,
+  CONFLICT:     409,
+  INTERNAL:     500,
+} as const;
+
+/* =====================================================
+   CONFIG
+===================================================== */
+
+const TEAM_CONFIG = {
+  pagination: {
+    defaultLimit: 50,
+    maxLimit:     200,
+  },
+  caps: {
+    name:        100,
+    description: 500,
+    maxMembers:  500,        // hard ceiling per team
+    bulkMembers: 100,        // max members to add/remove in one bulk call
+  },
+  privilegedRoles: ["ORG_ADMIN", "SUPER_ADMIN", "MANAGER"] as const,
+  superAdminRoles: ["SUPER_ADMIN", "ORG_ADMIN"] as const,
+} as const;
+
+/* =====================================================
+   ALLOWLISTS
+===================================================== */
+
+/* The narrower set the team service expects */
+const SERVICE_ROLES = [
+  "SUPER_ADMIN",
+  "ORG_ADMIN",
+  "MANAGER",
+  "AGENT",
+  "USER",
+] as const;
+type ServiceRole = (typeof SERVICE_ROLES)[number];
+
+function toServiceRole(role: string): ServiceRole {
+  return (SERVICE_ROLES as readonly string[]).includes(role)
+    ? (role as ServiceRole)
+    : "USER";
+}
+
+/* =====================================================
+   ZOD SCHEMAS
+===================================================== */
+
+const objectIdSchema = z
+  .string()
+  .refine((v) => mongoose.Types.ObjectId.isValid(v), {
+    message: "Invalid ObjectId format",
+  });
+
+const createTeamSchema = z
+  .object({
+    name:        z.string().trim().min(1, "Name required").max(TEAM_CONFIG.caps.name),
+    description: z.string().trim().max(TEAM_CONFIG.caps.description).optional(),
+    members:     z.array(objectIdSchema).max(TEAM_CONFIG.caps.maxMembers).optional(),
+    managerId:   objectIdSchema.optional(),
+    color:       z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be hex color").optional(),
+  })
+  .strict();
+
+const updateTeamSchema = z
+  .object({
+    name:        z.string().trim().min(1).max(TEAM_CONFIG.caps.name).optional(),
+    description: z.string().trim().max(TEAM_CONFIG.caps.description).optional(),
+    managerId:   objectIdSchema.optional(),
+    color:       z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field must be provided for update",
+  });
+
+const memberActionSchema = z
+  .object({
+    userId: objectIdSchema,
+  })
+  .strict();
+
+const bulkMembersSchema = z
+  .object({
+    userIds: z
+      .array(objectIdSchema)
+      .min(1, "At least one userId required")
+      .max(TEAM_CONFIG.caps.bulkMembers),
+  })
+  .strict();
+
+const listQuerySchema = z
+  .object({
+    page:    z.string().optional(),
+    limit:   z.string().optional(),
+    search:  z.string().optional(),
+    sort:    z.string().optional(),
+  })
+  .strict();
+
+/* =====================================================
+   HELPERS
+===================================================== */
+
+interface TeamActor {
+  userId: string;
+  organizationId: string;
+  role: string;
+}
+
+/**
+ * Extract & validate the authenticated user. Reads from globally-augmented
+ * req.user (via express.d.ts) and normalizes _id to a string.
+ */
+function requireAuth(req: Request): TeamActor {
+  const u = req.user;
+  if (!u) {
+    throw new AppError("Unauthorized", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED");
+  }
+
+  const userId =
+    (typeof u.id === "string" && u.id) ||
+    (u._id ? u._id.toString() : "");
+
+  const organizationId =
+    typeof u.organizationId === "string"
+      ? u.organizationId
+      : String(u.organizationId ?? "");
+
+  if (!userId || !organizationId) {
+    throw new AppError(
+      "User missing identity or organization",
+      HttpStatus.UNAUTHORIZED,
+      "UNAUTHORIZED"
+    );
+  }
+
+  return {
+    userId,
+    organizationId,
+    role: String(u.role ?? "USER").toUpperCase(),
   };
 }
 
-/* ===============================
-   VALIDATION SCHEMA
-================================ */
+function requireRole(actor: TeamActor, allowed: readonly string[]): void {
+  if (!(allowed as readonly string[]).includes(actor.role)) {
+    throw new AppError(
+      "This action requires manager-level access",
+      HttpStatus.FORBIDDEN,
+      "FORBIDDEN"
+    );
+  }
+}
 
-const createTeamSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Team name is required")
-    .max(100, "Team name too long"),
-});
+/**
+ * Build the service-input shape that teamService methods expect.
+ * Centralizes the (legacy) { _id, role, organizationId } field naming
+ * so the service can be migrated independently of the controller.
+ */
+function buildServiceUser(actor: TeamActor): {
+  _id: string;
+  role: ServiceRole;
+  organizationId: string;
+} {
+  return {
+    _id:            actor.userId,
+    role:           toServiceRole(actor.role),
+    organizationId: actor.organizationId,
+  };
+}
 
-/* ===============================
-   CREATE TEAM
-================================ */
+/**
+ * Validate and extract a Mongo ObjectId from req params.
+ */
+function requireObjectId(req: Request, paramName: string = "id"): string {
+  const id = req.params[paramName] as string | undefined;
+  if (!id || !id.trim()) {
+    throw new AppError(
+      `${paramName} is required`,
+      HttpStatus.BAD_REQUEST,
+      "MISSING_ID"
+    );
+  }
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new AppError(
+      `Invalid ${paramName} format`,
+      HttpStatus.BAD_REQUEST,
+      "INVALID_ID"
+    );
+  }
+  return id;
+}
 
-export const createTeam = async (req: AuthRequest, res: Response) => {
-  try {
-    const orgId = req.user?.organizationId;
-    const userId = req.user?._id;
+function runSchema<T extends z.ZodTypeAny>(
+  schema: T,
+  data: unknown
+): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new ValidationError(
+      result.error.issues.map((e) => ({
+        field:   e.path.length ? e.path.join(".") : "(root)",
+        message: e.message,
+      }))
+    );
+  }
+  return result.data;
+}
 
-    if (!orgId || !userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+function getNumber(
+  value: unknown,
+  fallback: number,
+  opts: { min?: number; max?: number } = {}
+): number {
+  let n: number;
+  if (typeof value === "string") {
+    n = Number(value);
+    if (!Number.isFinite(n)) n = fallback;
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    n = value;
+  } else {
+    n = fallback;
+  }
+  if (opts.min !== undefined) n = Math.max(n, opts.min);
+  if (opts.max !== undefined) n = Math.min(n, opts.max);
+  return n;
+}
+
+/* =====================================================
+   CONTROLLER
+===================================================== */
+
+class TeamController {
+
+  /* =====================================================
+     POST /teams — create a new team
+  ===================================================== */
+  create = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
+
+    const validated = runSchema(createTeamSchema, req.body);
+
+    /* Build input with conditional spreads (exactOptionalPropertyTypes safe) */
+    const input = {
+      name: validated.name,
+      ...(validated.description !== undefined && { description: validated.description }),
+      ...(validated.members     !== undefined && { members:     validated.members }),
+      ...(validated.managerId   !== undefined && { managerId:   validated.managerId }),
+      ...(validated.color       !== undefined && { color:       validated.color }),
+    };
+
+    const team = await teamService.create(input, buildServiceUser(actor));
+
+    if (!team) {
+      throw new AppError(
+        "Team creation failed",
+        HttpStatus.INTERNAL,
+        "TEAM_CREATE_FAILED"
+      );
     }
 
-    const validated = createTeamSchema.parse(req.body);
-    const trimmedName = validated.name.trim();
-
-    const existing = await Team.findOne({
-      name: trimmedName,
-      organizationId: orgId,
-    });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "Team already exists",
-      });
+    /* Audit log — non-fatal */
+    try {
+      await logAudit({
+        organizationId: actor.organizationId,
+        actorId:        actor.userId,
+        action:         AuditAction.CREATE,
+        resource:       AuditResource.TEAM,
+        resourceId:     (team as { _id: { toString(): string } })._id.toString(),
+        req,
+      } as never);
+    } catch (err) {
+      dbLogger.warn(
+        `Audit log failed (non-fatal): team create ` +
+        `error=${(err as Error)?.message ?? "unknown"}`
+      );
     }
 
-    const team = await Team.create({
-      name: trimmedName,
-      organizationId: orgId,
-      createdBy: userId,
+    dbLogger.info(
+      `Team created: org=${actor.organizationId} name=${validated.name} ` +
+      `members=${validated.members?.length ?? 0} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.CREATED).json({
+      success: true,
+      data: team,
+      message: "Team created",
+    });
+  });
+
+  /* =====================================================
+     GET /teams — list teams with pagination + search
+  ===================================================== */
+  getAll = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    const validated = runSchema(listQuerySchema, req.query);
+
+    const page = getNumber(validated.page, 1, { min: 1, max: 10_000 });
+    const limit = getNumber(
+      validated.limit,
+      TEAM_CONFIG.pagination.defaultLimit,
+      { min: 1, max: TEAM_CONFIG.pagination.maxLimit }
+    );
+
+    const search = validated.search?.trim().slice(0, 200);
+
+    /* Service may have a simple getAll(user) or paginated signature —
+       cast supports both shapes without breaking back-compat. */
+    const svc = teamService as unknown as {
+      getAll: (
+        user: { _id: string; role: ServiceRole; organizationId: string },
+        opts?: { page?: number; limit?: number; search?: string }
+      ) => Promise<unknown>;
+    };
+
+    const result = await svc.getAll(buildServiceUser(actor), {
+      page,
+      limit,
+      ...(search && { search }),
     });
 
-    /* 🔐 AUDIT LOG */
-    await logAudit({
-      organizationId: orgId.toString(),
-      actorId: userId.toString(),
-      action: AuditAction.CREATE,
-      resource: AuditResource.TEAM,
-      resourceId: team._id.toString(),
-      req,
-    });
+    /* Support both response shapes: array or { teams, total } */
+    const items =
+      Array.isArray(result)
+        ? result
+        : (result as { teams?: unknown[]; data?: unknown[] })?.teams
+          ?? (result as { data?: unknown[] })?.data
+          ?? [];
+    const total =
+      Array.isArray(result)
+        ? result.length
+        : (result as { total?: number })?.total ?? items.length;
+    const totalPages = Math.ceil(total / limit);
 
-    return res.status(201).json({
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    });
+  });
+
+  /* =====================================================
+     GET /teams/:id — single team lookup
+  ===================================================== */
+  getOne = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    const id = requireObjectId(req);
+
+    const team = await teamService.getById(id, buildServiceUser(actor));
+
+    if (!team) {
+      throw new AppError(
+        "Team not found",
+        HttpStatus.NOT_FOUND,
+        "TEAM_NOT_FOUND"
+      );
+    }
+
+    res.status(HttpStatus.OK).json({
       success: true,
       data: team,
     });
-  } catch (error) {
-    console.error("CREATE TEAM ERROR:", error);
+  });
 
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
-};
+  /* =====================================================
+     PATCH /teams/:id — update team metadata
+  ===================================================== */
+  update = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
 
-/* ===============================
-   GET TEAMS
-================================ */
+    const id = requireObjectId(req);
+    const validated = runSchema(updateTeamSchema, req.body);
 
-export const getTeams = async (req: AuthRequest, res: Response) => {
-  try {
-    const orgId = req.user?.organizationId;
+    /* Build update with conditional spreads */
+    const update = {
+      ...(validated.name        !== undefined && { name:        validated.name }),
+      ...(validated.description !== undefined && { description: validated.description }),
+      ...(validated.managerId   !== undefined && { managerId:   validated.managerId }),
+      ...(validated.color       !== undefined && { color:       validated.color }),
+      updatedBy: actor.userId,
+    };
 
-    if (!orgId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+    const team = await teamService.update(id, update as never, buildServiceUser(actor));
+
+    if (!team) {
+      throw new AppError(
+        "Team not found",
+        HttpStatus.NOT_FOUND,
+        "TEAM_NOT_FOUND"
+      );
     }
 
-    const teams = await Team.find({
-      organizationId: orgId,
-    })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "name email");
+    /* Audit log — non-fatal */
+    try {
+      await logAudit({
+        organizationId: actor.organizationId,
+        actorId:        actor.userId,
+        action:         AuditAction.UPDATE,
+        resource:       AuditResource.TEAM,
+        resourceId:     id,
+        meta:           { fields: Object.keys(update) },
+        req,
+      } as never);
+    } catch (err) {
+      dbLogger.warn(
+        `Audit log failed (non-fatal): team update id=${id} ` +
+        `error=${(err as Error)?.message ?? "unknown"}`
+      );
+    }
 
-    return res.status(200).json({
+    dbLogger.info(
+      `Team updated: id=${id} org=${actor.organizationId} ` +
+      `fields=${Object.keys(update).join(",")} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
       success: true,
-      data: teams,
+      data: team,
+      message: "Team updated",
     });
-  } catch (error) {
-    console.error("GET TEAMS ERROR:", error);
+  });
 
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
+  /* =====================================================
+     DELETE /teams/:id — soft delete a team
+  ===================================================== */
+  remove = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
+
+    const id = requireObjectId(req);
+
+    await teamService.remove(id, buildServiceUser(actor));
+
+    /* Audit log — non-fatal */
+    try {
+      await logAudit({
+        organizationId: actor.organizationId,
+        actorId:        actor.userId,
+        action:         AuditAction.DELETE,
+        resource:       AuditResource.TEAM,
+        resourceId:     id,
+        req,
+      } as never);
+    } catch (err) {
+      dbLogger.warn(
+        `Audit log failed (non-fatal): team delete id=${id} ` +
+        `error=${(err as Error)?.message ?? "unknown"}`
+      );
+    }
+
+    dbLogger.warn(
+      `Team deleted: id=${id} org=${actor.organizationId} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      message: "Team deleted",
     });
-  }
-};
+  });
+
+  /* =====================================================
+     POST /teams/:id/members — add a single member
+  ===================================================== */
+  addMember = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
+
+    const id = requireObjectId(req);
+    const { userId } = runSchema(memberActionSchema, req.body);
+
+    const team = await teamService.addMember(id, userId, buildServiceUser(actor));
+
+    if (!team) {
+      throw new AppError(
+        "Team not found",
+        HttpStatus.NOT_FOUND,
+        "TEAM_NOT_FOUND"
+      );
+    }
+
+    dbLogger.info(
+      `Team member added: team=${id} user=${userId} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: team,
+      message: "Member added",
+    });
+  });
+
+  /* =====================================================
+     DELETE /teams/:id/members/:userId — remove a single member
+  ===================================================== */
+  removeMember = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
+
+    const id = requireObjectId(req);
+
+    /* Support both: userId in URL (REST style) or body (legacy) */
+    const userIdParam = req.params.userId as string | undefined;
+    const userId =
+      userIdParam && mongoose.Types.ObjectId.isValid(userIdParam)
+        ? userIdParam
+        : runSchema(memberActionSchema, req.body).userId;
+
+    /* Prevent self-removal by accident — must be intentional */
+    if (userId === actor.userId && req.body?.confirmSelfRemoval !== true) {
+      throw new AppError(
+        "Removing yourself requires { confirmSelfRemoval: true } in body",
+        HttpStatus.BAD_REQUEST,
+        "CONFIRM_REQUIRED"
+      );
+    }
+
+    const team = await teamService.removeMember(id, userId, buildServiceUser(actor));
+
+    if (!team) {
+      throw new AppError(
+        "Team not found",
+        HttpStatus.NOT_FOUND,
+        "TEAM_NOT_FOUND"
+      );
+    }
+
+    dbLogger.info(
+      `Team member removed: team=${id} user=${userId} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: team,
+      message: "Member removed",
+    });
+  });
+
+  /* =====================================================
+     POST /teams/:id/members/bulk-add — add multiple members at once
+  ===================================================== */
+  bulkAddMembers = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.privilegedRoles);
+
+    const id = requireObjectId(req);
+    const { userIds } = runSchema(bulkMembersSchema, req.body);
+
+    const svc = teamService as unknown as {
+      bulkAddMembers?: (
+        teamId: string,
+        userIds: string[],
+        user: { _id: string; role: ServiceRole; organizationId: string }
+      ) => Promise<unknown>;
+      addMember: (
+        teamId: string,
+        userId: string,
+        user: { _id: string; role: ServiceRole; organizationId: string }
+      ) => Promise<unknown>;
+    };
+
+    let result: unknown;
+    if (typeof svc.bulkAddMembers === "function") {
+      result = await svc.bulkAddMembers(id, userIds, buildServiceUser(actor));
+    } else {
+      /* Fallback: parallel addMember with allSettled — partial failures OK */
+      const settled = await Promise.allSettled(
+        userIds.map((uid) =>
+          svc.addMember(id, uid, buildServiceUser(actor))
+        )
+      );
+      result = {
+        added:  settled.filter((r) => r.status === "fulfilled").length,
+        failed: settled.filter((r) => r.status === "rejected").length,
+      };
+    }
+
+    dbLogger.info(
+      `Team bulk add: team=${id} requested=${userIds.length} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: result,
+      message: `Bulk member add: ${userIds.length} processed`,
+    });
+  });
+
+  /* =====================================================
+     GET /teams/:id/members — list members of a team
+  ===================================================== */
+  getMembers = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    const id = requireObjectId(req);
+
+    const svc = teamService as unknown as {
+      getMembers?: (
+        teamId: string,
+        user: { _id: string; role: ServiceRole; organizationId: string }
+      ) => Promise<unknown>;
+    };
+
+    if (typeof svc.getMembers !== "function") {
+      throw new AppError(
+        "Member listing not available",
+        HttpStatus.NOT_FOUND,
+        "NOT_AVAILABLE"
+      );
+    }
+
+    const members = await svc.getMembers(id, buildServiceUser(actor));
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: members,
+    });
+  });
+
+  /* =====================================================
+     POST /teams/:id/transfer-manager — change team manager
+  ===================================================== */
+  transferManager = asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const actor = requireAuth(req);
+    requireRole(actor, TEAM_CONFIG.superAdminRoles);
+
+    const id = requireObjectId(req);
+
+    const newManagerId =
+      typeof req.body?.newManagerId === "string" ? req.body.newManagerId : "";
+
+    if (!newManagerId || !mongoose.Types.ObjectId.isValid(newManagerId)) {
+      throw new AppError(
+        "Valid newManagerId is required",
+        HttpStatus.BAD_REQUEST,
+        "INVALID_MANAGER_ID"
+      );
+    }
+
+    const svc = teamService as unknown as {
+      transferManager?: (
+        teamId: string,
+        newManagerId: string,
+        user: { _id: string; role: ServiceRole; organizationId: string }
+      ) => Promise<unknown>;
+      update: (
+        teamId: string,
+        update: { managerId: string },
+        user: { _id: string; role: ServiceRole; organizationId: string }
+      ) => Promise<unknown>;
+    };
+
+    let result: unknown;
+    if (typeof svc.transferManager === "function") {
+      result = await svc.transferManager(id, newManagerId, buildServiceUser(actor));
+    } else {
+      /* Fallback: standard update */
+      result = await svc.update(
+        id,
+        { managerId: newManagerId },
+        buildServiceUser(actor)
+      );
+    }
+
+    if (!result) {
+      throw new AppError(
+        "Team not found",
+        HttpStatus.NOT_FOUND,
+        "TEAM_NOT_FOUND"
+      );
+    }
+
+    /* Audit log — security-critical */
+    try {
+      await logAudit({
+        organizationId: actor.organizationId,
+        actorId:        actor.userId,
+        action:         AuditAction.UPDATE,
+        resource:       AuditResource.TEAM,
+        resourceId:     id,
+        meta:           { event: "MANAGER_TRANSFERRED", newManagerId },
+        req,
+      } as never);
+    } catch (err) {
+      dbLogger.warn(
+        `Audit log failed (non-fatal): team manager transfer id=${id} ` +
+        `error=${(err as Error)?.message ?? "unknown"}`
+      );
+    }
+
+    dbLogger.warn(
+      `Team manager transferred: team=${id} newManager=${newManagerId} actor=${actor.userId}`
+    );
+
+    res.status(HttpStatus.OK).json({
+      success: true,
+      data: result,
+      message: "Team manager transferred",
+    });
+  });
+}
+
+export default new TeamController();
 
 
 

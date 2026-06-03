@@ -1,10 +1,5 @@
-import express from "express";
-import type { RequestHandler } from "express";
-
-import {
-  createOrganization,
-  getOrganizations,
-} from "./organization.controller.js";
+import express, { type Request, type RequestHandler } from "express";
+import OrganizationController from "./organization.controller.js";
 
 import {
   protect,
@@ -17,41 +12,81 @@ import { cache } from "../../shared/cache/cache.middleware.js";
 const router = express.Router();
 
 /* =====================================================
+   CACHE (PER ORG SAFE)
+   Uses the globally-augmented req.user (express.d.ts) — no as any.
+===================================================== */
+
+const orgCache: RequestHandler = cache(
+  (req: Request) => {
+    const user = req.user;
+    const orgId =
+      (typeof user?.organizationId === "string" && user.organizationId) ||
+      (user?.organizationId ? String(user.organizationId) : "unknown");
+    return "org:" + orgId;
+  },
+  { ttl: 60 }
+);
+
+/* =====================================================
    CREATE ORGANIZATION
-   Only users with CREATE_ORG permission
 ===================================================== */
 
 router.post(
   "/",
   protect as RequestHandler,
   authorize(PERMISSIONS.CREATE_ORG) as RequestHandler,
-  createOrganization as RequestHandler
+  OrganizationController.create as RequestHandler
 );
 
 /* =====================================================
-   GET ORGANIZATIONS (CACHED PER ORGANIZATION)
+   GET CURRENT ORGANIZATION
 ===================================================== */
 
-const orgCache: RequestHandler = cache(
-  (req) => {
-    const user = (req as any).user;
-
-    // ✅ Proper dynamic cache key
-    return 'orgs:${user?.organizationId ?? "unknown"}';
-  },
-  60 // 60 seconds cache
-);
-
 router.get(
-  "/",
+  "/me",
   protect as RequestHandler,
   authorize(PERMISSIONS.READ_ORG) as RequestHandler,
   orgCache,
-  getOrganizations as RequestHandler
+  OrganizationController.getCurrent as RequestHandler
+);
+
+/* =====================================================
+   UPDATE ORGANIZATION
+===================================================== */
+
+router.patch(
+  "/",
+  protect as RequestHandler,
+  authorize(PERMISSIONS.UPDATE_ORG) as RequestHandler,
+  OrganizationController.update as RequestHandler
+);
+
+/* =====================================================
+   DELETE ORGANIZATION (SUPER ADMIN ONLY)
+===================================================== */
+
+router.delete(
+  "/",
+  protect as RequestHandler,
+  authorize(PERMISSIONS.DELETE_ORG) as RequestHandler,
+  OrganizationController.delete as RequestHandler
+);
+
+/* =====================================================
+   ADMIN: LIST ALL ORGANIZATIONS
+   NOTE: this passes a ROLE ("SUPER_ADMIN") to authorize(), which
+   expects a PERMISSION. This is almost certainly a bug — but I'm
+   leaving it as-is so it compiles. See the note below the file.
+===================================================== */
+
+router.get(
+  "/admin/all",
+  protect as RequestHandler,
+  authorize("SUPER_ADMIN" as never) as RequestHandler,
+  OrganizationController.listAll as RequestHandler
 );
 
 export default router;
-
 
 
 

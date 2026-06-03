@@ -2,45 +2,100 @@ import { z } from "zod";
 import { LeadSource } from "../../shared/enums/lead.enums.js";
 
 /* =====================================================
-   CREATE LEAD (Pipeline System)
-   NOTE:
-   - No stage
-   - No probability
-   - No pipelineId
-   Backend assigns default pipeline + first stage
+   🔥 COMMON HELPERS
+===================================================== */
+
+// Normalize optional string → null instead of undefined
+const optionalString = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((val) => val || null)
+  .optional()
+  .nullable();
+
+// Phone basic validation (can upgrade later)
+const phoneSchema = z
+  .string()
+  .trim()
+  .min(6, "Phone too short")
+  .max(20, "Phone too long");
+
+// Budget validation
+const budgetSchema = z
+  .number()
+  .min(0, "Budget must be positive");
+
+/* =====================================================
+   🧾 CREATE LEAD (ENTERPRISE SAFE)
 ===================================================== */
 
 export const createLeadSchema = z.object({
-  name: z.string(),
-  phone: z.string(),
-  email: z.string().email().optional(),
-  budget: z.number(),
-  interestedLocation: z.string(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(100),
+
+  phone: phoneSchema,
+
+  email: z
+    .string()
+    .email("Invalid email")
+    .trim()
+    .toLowerCase()
+    .optional()
+    .nullable()
+    .transform((val) => val ?? null),
+
+  budget: budgetSchema,
+
+  interestedLocation: z
+    .string()
+    .trim()
+    .min(1, "Location required"),
+
   source: z.nativeEnum(LeadSource),
-  notes: z.string().optional(),
+
+  notes: optionalString,
 });
 
 /* =====================================================
-   UPDATE LEAD
-   - stageId allowed (dynamic pipeline stage)
-   - assignedTo allowed
+   ✏️ UPDATE LEAD (STRICT PARTIAL)
 ===================================================== */
 
 export const updateLeadSchema = z.object({
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  budget: z.number().optional(),
-  interestedLocation: z.string().optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+
+  phone: phoneSchema.optional(),
+
+  email: z
+    .string()
+    .email()
+    .trim()
+    .toLowerCase()
+    .optional()
+    .nullable()
+    .transform((val) => val ?? null),
+
+  budget: budgetSchema.optional(),
+
+  interestedLocation: z.string().trim().optional(),
+
   source: z.nativeEnum(LeadSource).optional(),
-  notes: z.string().optional(),
 
-  // 🔥 Dynamic Stage
-  stageId: z.string().optional(),
+  notes: optionalString,
 
-  // 🔥 Reassignment
-  assignedTo: z.string().optional(),
+  /* ================= PIPELINE ================= */
+
+  stageId: z.string().min(1).optional(),
+
+  assignedTo: z.string().min(1).optional(),
 });
+
+/* =====================================================
+   📦 TYPES
+===================================================== */
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>;
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;

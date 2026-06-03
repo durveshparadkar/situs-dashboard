@@ -1,295 +1,675 @@
-import { Request, Response, NextFunction } from "express";
+// lead.controller.ts
+import type { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
+
 import leadService from "./lead.service.js";
 import {
   createLeadSchema,
   updateLeadSchema,
 } from "./lead.schema.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { dbLogger } from "../../utils/logger.js";
+
+/* =====================================================
+   ERRORS
+===================================================== */
+
+class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 400,
+    public code: string = "APP_ERROR",
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+
+/* =====================================================
+   HTTP STATUS
+===================================================== */
+
+const HttpStatus = {
+  OK: 200,
+  CREATED: 201,
+  NO_CONTENT: 204,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  UNPROCESSABLE: 422,
+  INTERNAL: 500,
+} as const;
 
 /* =====================================================
    TYPES
 ===================================================== */
 
-interface CurrentUser {
+type LeadRole = "org_admin" | "manager" | "agent";
+
+/**
+ * Normalized user shape returned by getCurrentUser.
+ * Independent from the global AuthenticatedUser to avoid coupling
+ * the lead module's role enum to the broader system roles.
+ */
+interface LeadAuthUser {
+  id: string;
   _id: string;
-  role: "org_admin" | "manager" | "agent";
   organizationId: string;
+  role: LeadRole;
 }
 
 /* =====================================================
-   HELPER
+   ALLOWLISTS — for query-param validation
 ===================================================== */
 
-function getCurrentUser(req: Request): CurrentUser {
-  const user = (req as any).user;
+const VALID_SORT_FIELDS = [
+  "createdAt",
+  "updatedAt",
+  "name",
+  "score",
+  "lastActivityAt",
+  "stageEnteredAt",
+] as const;
 
-  if (!user) {
-    throw new Error("Unauthorized");
+const VALID_SORT_ORDERS = ["asc", "desc"] as const;
+
+const VALID_STAGES_FILTER = [
+  "new",
+  "contacted",
+  "qualified",
+  "proposal",
+  "negotiation",
+  "won",
+  "lost",
+  "nurture",
+] as const;
+
+/* =====================================================
+   HELPERS
+===================================================== */
+
+/**
+ * Extract the authenticated user, normalize id fields, and validate role.
+ * Reads from the globally-augmented req.user (express.d.ts) and returns
+ * a strict, lead-specific user shape.
+ */
+function getCurrentUser(req: Request): LeadAuthUser {
+  const u = req.user;
+  if (!u) {
+    throw new AppError("Unauthorized", HttpStatus.UNAUTHORIZED, "UNAUTHORIZED");
+  }
+
+  /* Global type allows _id to be ObjectId | string — normalize to string */
+  const idStr =
+    (typeof u.id === "string" && u.id) ||
+    (u._id ? u._id.toString() : "");
+
+  const orgIdStr =
+    typeof u.organizationId === "string"
+      ? u.organizationId
+      : String(u.organizationId ?? "");
+
+  if (!idStr || !orgIdStr) {
+    throw new AppError(
+      "Authenticated user missing identity fields",
+      HttpStatus.UNAUTHORIZED,
+      "UNAUTHORIZED"
+    );
+  }
+
+  const systemRole = String(u.role ?? "AGENT").trim().toUpperCase();
+  const roleMap: Record<string, LeadRole> = {
+    ORG_ADMIN: "org_admin",
+    SUPER_ADMIN: "org_admin",
+    MANAGER: "manager",
+    AGENT: "agent",
+    USER: "agent",
+  };
+  const role = roleMap[systemRole];
+
+  if (!role) {
+    throw new AppError(
+      "Invalid user role for lead operations",
+      HttpStatus.FORBIDDEN,
+      "INVALID_ROLE"
+    );
   }
 
   return {
-    _id: user._id.toString(),
-    // 🔥 Normalize role to lowercase to match LeadService expectations
-    role: String(user.role).toLowerCase() as CurrentUser["role"],
-    organizationId: user.organizationId.toString(),
+    id: idStr,
+    _id: idStr,
+    organizationId: orgIdStr,
+    role,
   };
 }
 
+/**
+ * Safely extract a single string param. Express types params as
+ * string|string[], so this normalizes and validates ObjectId format
+ * for endpoints that expect Mongo IDs.
+ */
+function getId(value: unknown, opts: { mongoId?: boolean } = {}): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new AppError(
+      "Invalid or missing ID",
+      HttpStatus.BAD_REQUEST,
+      "INVALID_ID"
+    );
+  }
+  if (opts.mongoId && !mongoose.Types.ObjectId.isValid(value)) {
+    throw new AppError(
+      "Invalid Mongo ObjectId format",
+      HttpStatus.BAD_REQUEST,
+      "INVALID_ID"
+    );
+  }
+  return value;
+}
+
+function paramAsString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  return undefined;
+}
+
+function getNumber(
+  value: unknown,
+  fallback: number,
+  opts: { min?: number; max?: number } = {}
+): number {
+  let n: number;
+  if (typeof value === "string") {
+    n = Number(value);
+    if (!Number.isFinite(n)) n = fallback;
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    n = value;
+  } else {
+    n = fallback;
+  }
+  if (opts.min !== undefined) n = Math.max(n, opts.min);
+  if (opts.max !== undefined) n = Math.min(n, opts.max);
+  return n;
+}
+
+function getEnumParam<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback?: T
+): T | undefined {
+  if (typeof value !== "string") return fallback;
+  const v = value.trim().toLowerCase();
+  return (allowed as readonly string[]).includes(v)
+    ? (v as T)
+    : fallback;
+}
+
+function getDateParam(value: unknown): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+function clampString(value: unknown, max: number): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, max);
+}
+
 /* =====================================================
-   CONTROLLER
+   LEAD CONTROLLER
 ===================================================== */
 
 class LeadController {
-  /* =========================
-     CREATE
-  ========================= */
 
-  async create(req: Request, res: Response, next: NextFunction) {
-    try {
-      const parsed = createLeadSchema.parse(req.body);
+  /* =====================================================
+     POST /leads
+  ===================================================== */
+  create = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
 
-      const lead = await leadService.create(
-        parsed,
-        getCurrentUser(req)
+      const parsed = createLeadSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(
+          "Validation failed",
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          parsed.error.issues.map((e) => ({
+            field: e.path.join("."),
+            message: e.message,
+          }))
+        );
+      }
+
+      const lead = await leadService.create(parsed.data, user);
+
+      const newId = (lead as { _id?: unknown })?._id ?? "unknown";
+      dbLogger.info(
+        `Lead created: org=${user.organizationId} user=${user.id} id=${String(newId)}`
       );
 
-      res.status(201).json({
+      res.status(HttpStatus.CREATED).json({
         success: true,
         data: lead,
+        message: "Lead created",
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     FIND ALL
-  ========================= */
+  /* =====================================================
+     GET /leads
+  ===================================================== */
+  findAll = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
 
-  async findAll(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await leadService.findAll(
-        req.query as any,
-        getCurrentUser(req)
-      );
+      /* Pagination */
+      const page  = getNumber(req.query.page,  1,  { min: 1, max: 10_000 });
+      const limit = getNumber(req.query.limit, 20, { min: 1, max: 100 });
 
-      res.status(200).json({
+      /* Search — capped to prevent regex-engine abuse downstream */
+      const search = clampString(req.query.search, 200);
+
+      /* Filters */
+      const stage   = getEnumParam(req.query.stage, VALID_STAGES_FILTER);
+      const ownerId = paramAsString(req.query.ownerId);
+      const minScore =
+        req.query.minScore !== undefined
+          ? getNumber(req.query.minScore, 0, { min: 0, max: 100 })
+          : undefined;
+      const createdAfter  = getDateParam(req.query.createdAfter);
+      const createdBefore = getDateParam(req.query.createdBefore);
+
+      /* Sort */
+      const sortBy =
+        getEnumParam(req.query.sortBy, VALID_SORT_FIELDS, "createdAt") ??
+        "createdAt";
+      const sortOrder =
+        getEnumParam(req.query.sortOrder, VALID_SORT_ORDERS, "desc") ??
+        "desc";
+
+      /* Build filters with conditional spreads (exactOptionalPropertyTypes) */
+      const filters: Record<string, unknown> = {
+        page,
+        limit,
+        sortBy,
+        sortOrder,
+        ...(search                 && { search }),
+        ...(stage                  && { stage }),
+        ...(ownerId                && { ownerId }),
+        ...(minScore !== undefined && { minScore }),
+        ...(createdAfter           && { createdAfter }),
+        ...(createdBefore          && { createdBefore }),
+      };
+
+      const result = await leadService.findAll(filters as never, user);
+
+      res.status(HttpStatus.OK).json({
         success: true,
         ...result,
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     FIND ONE
-  ========================= */
+  /* =====================================================
+     GET /leads/:id
+  ===================================================== */
+  findOne = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
 
-  async findOne(req: Request, res: Response, next: NextFunction) {
-    try {
-      const lead = await leadService.findOne(
-        String(req.params.id),
-        getCurrentUser(req)
-      );
+      const lead = await leadService.findOne(id, user);
 
-      res.status(200).json({
-        success: true,
-        data: lead,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /* =========================
-     UPDATE
-  ========================= */
-
-  async update(req: Request, res: Response, next: NextFunction) {
-    try {
-      const parsed = updateLeadSchema.parse(req.body);
-
-      const lead = await leadService.update(
-        String(req.params.id),
-        parsed,
-        getCurrentUser(req)
-      );
-
-      res.status(200).json({
-        success: true,
-        data: lead,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /* =========================
-     MOVE STAGE
-  ========================= */
-
-  async updateStage(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { stageName } = req.body;
-
-      if (!stageName) {
-        return res.status(400).json({
-          success: false,
-          message: "stageName is required",
-        });
+      if (!lead) {
+        throw new AppError(
+          "Lead not found",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
       }
 
-      const lead = await leadService.updateStage(
-        String(req.params.id),
-        stageName,
-        getCurrentUser(req)
-      );
-
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
-        message: "Lead stage updated successfully",
         data: lead,
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     ARCHIVE
-  ========================= */
+  /* =====================================================
+     PATCH /leads/:id
+  ===================================================== */
+  update = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
 
-  async archive(req: Request, res: Response, next: NextFunction) {
-    try {
-      const lead = await leadService.archive(
-        String(req.params.id),
-        getCurrentUser(req)
+      const parsed = updateLeadSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(
+          "Validation failed",
+          HttpStatus.BAD_REQUEST,
+          "VALIDATION_ERROR",
+          parsed.error.issues.map((e) => ({
+            field: e.path.join("."),
+            message: e.message,
+          }))
+        );
+      }
+
+      if (Object.keys(parsed.data).length === 0) {
+        throw new AppError(
+          "No fields to update",
+          HttpStatus.BAD_REQUEST,
+          "EMPTY_UPDATE"
+        );
+      }
+
+      const lead = await leadService.update(id, parsed.data, user);
+
+      if (!lead) {
+        throw new AppError(
+          "Lead not found",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
+      }
+
+      dbLogger.info(
+        `Lead updated: org=${user.organizationId} id=${id} ` +
+        `user=${user.id} fields=${Object.keys(parsed.data).join(",")}`
       );
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
-        message: "Lead archived successfully",
         data: lead,
+        message: "Lead updated",
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     RESTORE
-  ========================= */
+  /* =====================================================
+     POST /leads/:id/stage
+  ===================================================== */
+  updateStage = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
 
-  async restore(req: Request, res: Response, next: NextFunction) {
-    try {
-      const lead = await leadService.restore(
-        String(req.params.id),
-        getCurrentUser(req)
+      const stageName = clampString(req.body?.stageName, 100);
+      if (!stageName) {
+        throw new AppError(
+          "stageName is required",
+          HttpStatus.BAD_REQUEST,
+          "MISSING_STAGE_NAME"
+        );
+      }
+
+      const reason = clampString(req.body?.reason, 500) || undefined;
+
+      const lead = await leadService.updateStage(id, stageName, user);
+
+      if (!lead) {
+        throw new AppError(
+          "Lead not found",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
+      }
+
+      dbLogger.info(
+        `Lead stage changed: org=${user.organizationId} id=${id} ` +
+        `user=${user.id} stage="${stageName}" reason=${reason ?? "none"}`
       );
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
-        message: "Lead restored successfully",
         data: lead,
+        message: `Stage updated to ${stageName}`,
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     GET ACTIVITIES
-  ========================= */
+  /* =====================================================
+     POST /leads/:id/archive
+  ===================================================== */
+  archive = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
 
-  async getActivities(req: Request, res: Response, next: NextFunction) {
-    try {
-      const activities = await leadService.getActivities(
-        String(req.params.id),
-        getCurrentUser(req)
+      const lead = await leadService.archive(id, user);
+
+      if (!lead) {
+        throw new AppError(
+          "Lead not found",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
+      }
+
+      dbLogger.warn(
+        `Lead archived: org=${user.organizationId} id=${id} user=${user.id}`
       );
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
+        success: true,
+        data: lead,
+        message: "Lead archived",
+      });
+    }
+  );
+
+  /* =====================================================
+     POST /leads/:id/restore
+  ===================================================== */
+  restore = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
+
+      const lead = await leadService.restore(id, user);
+
+      if (!lead) {
+        throw new AppError(
+          "Lead not found or not archived",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
+      }
+
+      dbLogger.info(
+        `Lead restored: org=${user.organizationId} id=${id} user=${user.id}`
+      );
+
+      res.status(HttpStatus.OK).json({
+        success: true,
+        data: lead,
+        message: "Lead restored",
+      });
+    }
+  );
+
+  /* =====================================================
+     GET /leads/:id/activities
+  ===================================================== */
+  getActivities = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
+      const id = getId(req.params.id, { mongoId: true });
+
+      const limit  = getNumber(req.query.limit, 50, { min: 1, max: 500 });
+      const cursor = paramAsString(req.query.cursor);
+
+      const svc = leadService as unknown as {
+        getActivities: (
+          id: string,
+          user: LeadAuthUser,
+          opts: { limit: number; cursor?: string }
+        ) => Promise<unknown>;
+      };
+
+      const activities = await svc.getActivities(id, user, {
+        limit,
+        ...(cursor && { cursor }),
+      });
+
+      res.status(HttpStatus.OK).json({
         success: true,
         data: activities,
+        meta: { count: Array.isArray(activities) ? activities.length : 0 },
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     🧠 INTELLIGENCE SUMMARY
-  ========================= */
+  /* =====================================================
+     GET /leads/intelligence-summary
+  ===================================================== */
+  getIntelligenceSummary = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
 
-  async getIntelligenceSummary(
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
-      const summary =
-        await leadService.getIntelligenceSummary(
-          getCurrentUser(req)
-        );
+      const summary = await leadService.getIntelligenceSummary(user);
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
         data: summary,
+        meta: { generatedAt: new Date().toISOString() },
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     🚨 REQUEST ESCALATION
-  ========================= */
+  /* =====================================================
+     POST /leads/bulk
+  ===================================================== */
+  bulkCreate = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
 
-  async requestEscalation(
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
-      const lead = await leadService.requestEscalation(
-        String(req.params.id),
-        getCurrentUser(req)
+      const items = req.body?.leads;
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new AppError(
+          "Request body must contain a non-empty 'leads' array",
+          HttpStatus.BAD_REQUEST,
+          "INVALID_PAYLOAD"
+        );
+      }
+      if (items.length > 1000) {
+        throw new AppError(
+          "Cannot bulk-create more than 1000 leads at once",
+          HttpStatus.BAD_REQUEST,
+          "TOO_MANY_LEADS"
+        );
+      }
+
+      /* Validate every lead before any DB write */
+      const validated = items.map((item, idx) => {
+        const result = createLeadSchema.safeParse(item);
+        if (!result.success) {
+          throw new AppError(
+            `Validation failed at index ${idx}`,
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_ERROR",
+            result.error.issues.map((e) => ({
+              field: `leads[${idx}].${e.path.join(".")}`,
+              message: e.message,
+            }))
+          );
+        }
+        return result.data;
+      });
+
+      /* Service may not implement bulkCreate yet — fall back gracefully */
+      const svc = leadService as unknown as {
+        bulkCreate?: (
+          items: typeof validated,
+          user: LeadAuthUser
+        ) => Promise<{ created: number; failed: number }>;
+      };
+
+      let result: { created: number; failed: number };
+      if (svc.bulkCreate) {
+        result = await svc.bulkCreate(validated, user);
+      } else {
+        const settled = await Promise.allSettled(
+          validated.map((d) => leadService.create(d, user))
+        );
+        result = {
+          created: settled.filter((r) => r.status === "fulfilled").length,
+          failed:  settled.filter((r) => r.status === "rejected").length,
+        };
+      }
+
+      dbLogger.info(
+        `Bulk leads: org=${user.organizationId} user=${user.id} ` +
+        `total=${validated.length} created=${result.created} failed=${result.failed}`
       );
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
-        message: "Escalation requested",
-        data: lead,
+        data: result,
+        message: "Bulk leads processed",
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
-  /* =========================
-     🚨 APPROVE ESCALATION
-  ========================= */
+  /* =====================================================
+     POST /leads/:id/assign
+  ===================================================== */
+  assign = asyncHandler(
+    async (req: Request, res: Response, _next: NextFunction) => {
+      const user = getCurrentUser(req);
 
-  async approveEscalation(
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
-      const lead = await leadService.approveEscalation(
-        String(req.params.id),
-        getCurrentUser(req)
+      if (user.role === "agent") {
+        throw new AppError(
+          "Agents cannot reassign leads",
+          HttpStatus.FORBIDDEN,
+          "FORBIDDEN"
+        );
+      }
+
+      const id         = getId(req.params.id,        { mongoId: true });
+      const newOwnerId = getId(req.body?.ownerId,    { mongoId: true });
+
+      const svc = leadService as unknown as {
+        assign?: (
+          id: string,
+          newOwnerId: string,
+          user: LeadAuthUser
+        ) => Promise<unknown>;
+      };
+
+      if (!svc.assign) {
+        throw new AppError(
+          "Lead reassignment not available",
+          HttpStatus.UNPROCESSABLE,
+          "NOT_IMPLEMENTED"
+        );
+      }
+
+      const lead = await svc.assign(id, newOwnerId, user);
+
+      if (!lead) {
+        throw new AppError(
+          "Lead not found",
+          HttpStatus.NOT_FOUND,
+          "LEAD_NOT_FOUND"
+        );
+      }
+
+      dbLogger.info(
+        `Lead reassigned: org=${user.organizationId} id=${id} ` +
+        `from=${user.id} to=${newOwnerId}`
       );
 
-      res.status(200).json({
+      res.status(HttpStatus.OK).json({
         success: true,
-        message: "Escalation approved",
         data: lead,
+        message: "Lead reassigned",
       });
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 }
 
 export default new LeadController();

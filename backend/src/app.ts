@@ -1,12 +1,25 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import morgan from "morgan";
+import { v4 as uuid } from "uuid";
 
 /* 🔥 REGISTER EVENT LISTENERS */
 import "./modules/leads/lead.listener.js";
 
 /* 🧠 REGISTER BRAIN WORKER */
 import "./modules/brain/brain.worker.js";
+
+/* 🎯 REGISTER INTELLIGENCE SCHEDULER */
+import {
+  startIntelligenceWorker,
+  scheduleIntelligenceNightly,
+} from "./modules/intelligence/intelligence.scheduler.js";
+
+startIntelligenceWorker();
+void scheduleIntelligenceNightly();
 
 /* ===============================
    ROUTES
@@ -20,9 +33,10 @@ import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import billingRoutes from "./shared/billing/billing.routes.js";
 import whatsappRoutes from "./modules/whatsapp/whatsapp.routes.js";
 import brainRoutes from "./modules/brain/brain.routes.js";
-
-/* 🚨 ALERTS */
 import alertRoutes from "./modules/alerts/alert.routes.js";
+import analyticsRoutes from "./modules/analytics/analytics.routes.js";
+import intelligenceRoutes from "./modules/intelligence/intelligence.routes.js";
+import forecastRoutes from "./modules/forecast/forecast.routes.js";
 
 /* ===============================
    MIDDLEWARES
@@ -30,35 +44,59 @@ import alertRoutes from "./modules/alerts/alert.routes.js";
 import { requestLogger } from "./shared/middlewares/logger.middleware.js";
 import errorMiddleware from "./shared/middlewares/error.middleware.js";
 import { apiLimiter } from "./shared/middlewares/rateLimit.middleware.js";
-import { globalLimiter } from "./shared/security/rateLimit.js";
 import { serverAdapter } from "./config/queue.ui.js";
 
 const app = express();
 
 /* ===============================
+   ENV
+=============================== */
+const NODE_ENV = process.env.NODE_ENV || "development";
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+const isDev = NODE_ENV !== "production";
+
+/* ===============================
    PRODUCTION SETTINGS
 =============================== */
-if (process.env.NODE_ENV === "production") {
+if (!isDev) {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
 }
 
 /* ===============================
+   REQUEST ID (TRACEABLE)
+=============================== */
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const requestId = uuid();
+  req.headers["x-request-id"] = requestId;
+  res.setHeader("x-request-id", requestId);
+  next();
+});
+
+/* ===============================
    SECURITY
 =============================== */
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 
+/* 🔥 CRITICAL: CORS FIX FOR COOKIES */
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: CLIENT_URL,
     credentials: true,
   })
 );
 
+/* 🔥 MUST COME BEFORE ROUTES */
+app.use(cookieParser());
+
 /* ===============================
-   GLOBAL RATE LIMITER
+   PERFORMANCE
 =============================== */
-app.use(globalLimiter);
+app.use(compression());
 
 /* ===============================
    STRIPE WEBHOOK (RAW BODY FIRST)
@@ -75,16 +113,14 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ limit: "10mb" }));
 
 /* ===============================
-   DEV LOGGER
+   LOGGING
 =============================== */
-if (process.env.NODE_ENV !== "production") {
+if (isDev) {
   app.use(requestLogger);
+  app.use(morgan("dev"));
+} else {
+  app.use(morgan("combined"));
 }
-
-/* ===============================
-   API RATE LIMITER
-=============================== */
-app.use("/api", apiLimiter);
 
 /* ===============================
    HEALTH CHECK
@@ -95,14 +131,21 @@ app.get("/health", (_req: Request, res: Response) => {
     status: "ok",
     uptime: process.uptime(),
     timestamp: Date.now(),
-    environment: process.env.NODE_ENV || "development",
+    environment: NODE_ENV,
   });
 });
 
 /* ===============================
-   MODULE ROUTES
+   🚀 ROUTES ORDER (VERY IMPORTANT)
 =============================== */
+
+/* ✅ AUTH ROUTES (NO LIMIT — avoid login block) */
 app.use("/api/auth", authRoutes);
+
+/* ✅ APPLY LIMIT AFTER AUTH */
+app.use("/api", apiLimiter);
+
+/* ✅ CORE ROUTES */
 app.use("/api/users", userRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/deals", dealRoutes);
@@ -110,17 +153,26 @@ app.use("/api/pipelines", pipelineRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
-
-/* 🧠 INTELLIGENCE */
 app.use("/api/brain", brainRoutes);
-
-/* 🚨 ALERTS */
 app.use("/api/alerts", alertRoutes);
-
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/intelligence", intelligenceRoutes);
+app.use("/api/forecast", forecastRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
 app.use("/admin/queues", serverAdapter.getRouter());
+
+/* ===============================
+   ROOT
+=============================== */
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    name: "Situs API",
+    version: "1.0",
+    status: "running",
+  });
+});
 
 /* ===============================
    404 HANDLER
@@ -141,7 +193,7 @@ app.use(errorMiddleware);
    GRACEFUL SHUTDOWN
 =============================== */
 const shutdown = (signal: string) => {
-  console.log(`${signal} received. Shutting down gracefully...`);
+  console.log(`${signal} received. Shutting down...`);
   process.exit(0);
 };
 

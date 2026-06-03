@@ -1,14 +1,13 @@
 import { ILead } from "./lead.model.js";
 
-export type PriorityLevel =
-  | "low"
-  | "medium"
-  | "high"
-  | "critical";
+/* ================= TYPES ================= */
+
+export type PriorityLevel = "low" | "medium" | "high" | "critical";
 
 interface PriorityResult {
   priority: PriorityLevel;
   isStale: boolean;
+  daysInactive: number;
 }
 
 interface PriorityConfig {
@@ -16,86 +15,112 @@ interface PriorityConfig {
   highBudgetThreshold: number;
   criticalScore: number;
   highScore: number;
+  mediumScore: number;
 }
 
 /* =====================================================
-   DEFAULT CONFIG (Can Be Made Org-Level Later)
+   DEFAULT CONFIG (READY FOR DB OVERRIDE)
 ===================================================== */
 
-const defaultConfig: PriorityConfig = {
+const DEFAULT_CONFIG: PriorityConfig = {
   staleAfterDays: 5,
-  highBudgetThreshold: 1000000,
+  highBudgetThreshold: 1_000_000,
   criticalScore: 85,
   highScore: 70,
+  mediumScore: 40,
 };
 
 /* =====================================================
-   SMART PRIORITY ENGINE
+   HELPERS
+===================================================== */
+
+function safeDate(date?: Date): Date {
+  return date ? new Date(date) : new Date();
+}
+
+function calculateDaysInactive(date: Date): number {
+  const diff =
+    Date.now() - date.getTime();
+
+  return Math.max(0, diff / (1000 * 60 * 60 * 24));
+}
+
+/* =====================================================
+   🚀 PRIORITY ENGINE (ENTERPRISE SAFE)
 ===================================================== */
 
 export function recalculatePriority(
   lead: ILead,
-  config: PriorityConfig = defaultConfig
+  config: PriorityConfig = DEFAULT_CONFIG
 ): PriorityResult {
-  const now = new Date();
-  const lastActivity = new Date(lead.lastActivityAt);
+  /* ================= SAFE VALUES ================= */
 
-  const daysInactive =
-    (now.getTime() - lastActivity.getTime()) /
-    (1000 * 60 * 60 * 24);
+  const lastActivity = safeDate(lead.lastActivityAt || lead.createdAt);
+
+  const daysInactive = calculateDaysInactive(lastActivity);
 
   const isStale = daysInactive >= config.staleAfterDays;
 
   let priority: PriorityLevel = "low";
 
+  const score = lead.leadScore ?? 0;
+  const budget = lead.budget ?? 0;
+
   /* =====================================================
-     1️⃣ SCORE-BASED RULES
+     1️⃣ SCORE BASED
   ===================================================== */
 
-  if (lead.leadScore >= config.criticalScore) {
+  if (score >= config.criticalScore) {
     priority = "critical";
-  } else if (lead.leadScore >= config.highScore) {
+  } else if (score >= config.highScore) {
     priority = "high";
-  } else if (lead.leadScore >= 40) {
+  } else if (score >= config.mediumScore) {
     priority = "medium";
   }
 
   /* =====================================================
-     2️⃣ HIGH BUDGET FLOOR RULE
+     2️⃣ HIGH VALUE FLOOR
   ===================================================== */
 
-  if (
-    lead.budget >= config.highBudgetThreshold &&
-    priority === "low"
-  ) {
+  if (budget >= config.highBudgetThreshold && priority === "low") {
     priority = "medium";
   }
 
   /* =====================================================
-     3️⃣ STALE ESCALATION RULE
-     (We escalate instead of downgrade)
+     3️⃣ STALE ESCALATION (SMART)
   ===================================================== */
 
   if (isStale) {
-    if (priority === "low") priority = "medium";
-    else if (priority === "medium") priority = "high";
+    const escalationMap: Record<PriorityLevel, PriorityLevel> = {
+      low: "medium",
+      medium: "high",
+      high: "high",
+      critical: "critical",
+    };
+
+    priority = escalationMap[priority];
   }
 
   /* =====================================================
-     4️⃣ CRITICAL SIGNAL OVERRIDE
+     4️⃣ AI SIGNAL OVERRIDE
   ===================================================== */
 
   const hasCriticalSignal =
     lead.brainSnapshot?.signals?.some(
       (s) => s.severity === "critical"
-    );
+    ) ?? false;
 
   if (hasCriticalSignal) {
     priority = "critical";
   }
 
+  /* =====================================================
+     FINAL
+  ===================================================== */
+
   return {
     priority,
     isStale,
+    daysInactive: Number(daysInactive.toFixed(1)),
   };
 }

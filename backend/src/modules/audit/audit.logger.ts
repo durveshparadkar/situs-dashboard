@@ -1,46 +1,295 @@
-import mongoose from "mongoose";
+import mongoose, { Types, ClientSession } from "mongoose";
 import AuditLog, {
   AuditAction,
   AuditResource,
 } from "../../modules/audit/audit.model.js";
+import logger from "../../utils/logger.js";
 
-interface LogAuditParams {
+/* ================= TYPES ================= */
+
+export type AuditSeverity = "info" | "warn" | "critical";
+export type AuditOutcome = "success" | "failure" | "denied";
+export type AuditActorType = "user" | "system" | "ai" | "integration" | "api" | "cron";
+
+export interface AuditRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+  source?: "web" | "mobile" | "api" | "cron" | "webhook" | "cli";
+  requestId?: string;
+  sessionId?: string;
+}
+
+export interface LogAuditParams {
   organizationId: string;
-  userId?: string; // allow system-level logs
+  userId?: string | null;
   action: AuditAction;
   resource: AuditResource;
   resourceId?: string;
+  outcome?: AuditOutcome;
+  severity?: AuditSeverity;
+  actorType?: AuditActorType;
+  actorName?: string;
+  before?: unknown;
+  after?: unknown;
   metadata?: Record<string, unknown>;
+  requestContext?: AuditRequestContext;
+  errorMessage?: string;
+  idempotencyKey?: string;
+  session?: ClientSession;
 }
 
-export const logAudit = async ({
-  organizationId,
-  userId,
-  action,
-  resource,
-  resourceId,
-  metadata = {},
-}: LogAuditParams): Promise<void> => {
-  try {
-    await AuditLog.create({
-      organizationId: new mongoose.Types.ObjectId(organizationId),
-      userId: userId
-        ? new mongoose.Types.ObjectId(userId)
-        : undefined,
-      action,
-      resource,
-      resourceId: resourceId
-        ? new mongoose.Types.ObjectId(resourceId)
-        : undefined,
-      metadata,
-    });
-  } catch (error) {
-    // Never throw audit errors (audit must not break main flow)
-    console.error("❌ AUDIT LOG FAILED:", {
-      action,
-      resource,
-      organizationId,
-      error: error instanceof Error ? error.message : error,
-    });
+/* ================= POLICY MAPS ================= */
+
+const CRITICAL_ACTIONS: ReadonlySet<string> = new Set([
+  "USER_DELETED", "ORGANIZATION_DELETED", "ROLE_CHANGED", "PERMISSION_GRANTED",
+  "PERMISSION_REVOKED", "API_KEY_CREATED", "API_KEY_REVOKED", "PASSWORD_RESET",
+  "LOGIN_FAILED", "ACCESS_DENIED", "DATA_EXPORTED", "BULK_DELETED",
+  "INTEGRATION_CONNECTED", "INTEGRATION_DISCONNECTED",
+]);
+
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+  "password", "passwordHash", "token", "accessToken", "refreshToken",
+  "apiKey", "secret", "ssn", "creditCard", "cvv", "authorization", "cookie",
+]);
+
+/* ================= HELPERS ================= */
+
+function isValidObjectId(id: string | undefined | null): boolean {
+  if (!id) return false;
+  return mongoose.Types.ObjectId.isValid(id);
+}
+
+function toObjectId(id: string): Types.ObjectId {
+  return new mongoose.Types.ObjectId(id);
+}
+
+function scrubSensitive(value: unknown, depth = 0): unknown {
+  if (depth > 10) return "[max-depth-exceeded]";
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "object") return value;
+
+  if (Array.isArray(value)) {
+    return value.map(v => scrubSensitive(v, depth + 1));
   }
-};
+
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = SENSITIVE_KEYS.has(key.toLowerCase())
+      ? "[REDACTED]"
+      : scrubSensitive(val, depth + 1);
+  }
+  return out;
+}
+
+function capPayload(value: unknown, maxBytes = 16_000): unknown {
+  try {
+    const str = JSON.stringify(value);
+    if (str.length <= maxBytes) return value;
+    return { _truncated: true, _originalSize: str.length, preview: str.slice(0, maxBytes) + "...[truncated]" };
+  } catch {
+    return { _error: "unserializable" };
+  }
+}
+
+function deriveSeverity(action: AuditAction, outcome: AuditOutcome): AuditSeverity {
+  if (outcome === "failure" || outcome === "denied") return "critical";
+  if (CRITICAL_ACTIONS.has(action as string))        return "critical";
+  return "info";
+}
+
+function deriveActorType(userId?: string | null): AuditActorType {
+  return userId ? "user" : "system";
+}
+
+/* ================= SERVICE ================= */
+
+class AuditService {
+
+  /* ── LOG ── */
+  async log(params: LogAuditParams): Promise<void> {
+    try {
+      if (!isValidObjectId(params.organizationId)) {
+        logger.error(
+          { action: `${params.action}`, resource: params.resource, organizationId: params.organizationId },
+          "Invalid organizationId for audit log"
+        );
+        return;
+      }
+
+      if (params.userId && !isValidObjectId(params.userId)) {
+        logger.error(
+          { userId: params.userId, action: `${params.action}` },
+          "Invalid userId for audit log"
+        );
+        return;
+      }
+
+      if (params.resourceId && !isValidObjectId(params.resourceId)) {
+        logger.error(
+          { resourceId: params.resourceId, action: `${params.action}` },
+          "Invalid resourceId for audit log"
+        );
+        return;
+      }
+
+      if (params.idempotencyKey) {
+        const existing = await AuditLog.findOne({
+          idempotencyKey: params.idempotencyKey,
+        }).lean();
+        if (existing) return;
+      }
+
+      const outcome   = params.outcome   ?? "success";
+      const actorType = params.actorType ?? deriveActorType(params.userId);
+      const severity  = params.severity  ?? deriveSeverity(params.action, outcome);
+
+      const safeBefore   = capPayload(scrubSensitive(params.before));
+      const safeAfter    = capPayload(scrubSensitive(params.after));
+      const safeMetadata = capPayload(scrubSensitive(params.metadata ?? {}));
+
+      const doc: Record<string, unknown> = {
+        organizationId: toObjectId(params.organizationId),
+        userId:    params.userId ? toObjectId(params.userId) : null,
+        actorType,
+        actorName: params.actorName,
+        action:    params.action,
+        resource:  params.resource,
+        resourceId: params.resourceId ? toObjectId(params.resourceId) : null,
+        outcome,
+        severity,
+        before:   safeBefore   ?? null,
+        after:    safeAfter    ?? null,
+        metadata: safeMetadata ?? {},
+        requestContext: params.requestContext,
+        errorMessage:   params.errorMessage,
+        idempotencyKey: params.idempotencyKey,
+      };
+
+      await AuditLog.create(
+        [doc],
+        { session: params.session ?? null }
+      );
+
+      if (severity === "critical") {
+        logger.warn(
+          {
+            action: `${params.action}`,
+            resource: `${params.resource}`,
+            organizationId: params.organizationId,
+            userId: params.userId,
+            outcome,
+          },
+          "Critical audit event"
+        );
+      }
+    } catch (error) {
+      logger.error(
+        {
+          action: `${params.action}`,
+          resource: `${params.resource}`,
+          organizationId: params.organizationId,
+          userId: params.userId,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack   : undefined,
+        },
+        "Audit log write failed"
+      );
+    }
+  }
+
+  /* ── CONVENIENCE HELPERS ── */
+  async logSuccess(params: Omit<LogAuditParams, "outcome">): Promise<void> {
+    return this.log({ ...params, outcome: "success" });
+  }
+
+  async logFailure(
+    params: Omit<LogAuditParams, "outcome"> & { errorMessage: string }
+  ): Promise<void> {
+    return this.log({ ...params, outcome: "failure" });
+  }
+
+  async logDenied(
+    params: Omit<LogAuditParams, "outcome"> & { errorMessage?: string }
+  ): Promise<void> {
+    return this.log({ ...params, outcome: "denied" });
+  }
+
+  /* ── BULK LOG ── */
+  async bulkLog(entries: LogAuditParams[]): Promise<{
+    written: number;
+    skipped: number;
+  }> {
+    if (!entries.length) return { written: 0, skipped: 0 };
+
+    let written = 0;
+    let skipped = 0;
+    const CHUNK = 500;
+
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const docs: Record<string, unknown>[] = [];
+
+      for (const e of chunk) {
+        if (
+          !isValidObjectId(e.organizationId) ||
+          (e.userId     && !isValidObjectId(e.userId)) ||
+          (e.resourceId && !isValidObjectId(e.resourceId))
+        ) {
+          skipped++;
+          continue;
+        }
+
+        const outcome   = e.outcome   ?? "success";
+        const actorType = e.actorType ?? deriveActorType(e.userId);
+        const severity  = e.severity  ?? deriveSeverity(e.action, outcome);
+
+        docs.push({
+          organizationId: toObjectId(e.organizationId),
+          userId:    e.userId ? toObjectId(e.userId) : null,
+          actorType,
+          actorName: e.actorName,
+          action:    e.action,
+          resource:  e.resource,
+          resourceId: e.resourceId ? toObjectId(e.resourceId) : null,
+          outcome,
+          severity,
+          before:   capPayload(scrubSensitive(e.before)),
+          after:    capPayload(scrubSensitive(e.after)),
+          metadata: capPayload(scrubSensitive(e.metadata ?? {})),
+          requestContext: e.requestContext,
+          errorMessage:   e.errorMessage,
+          idempotencyKey: e.idempotencyKey,
+        });
+      }
+
+      try {
+        const res = await AuditLog.insertMany(docs, { ordered: false });
+        written += res.length;
+      } catch (err: any) {
+        if (err?.insertedDocs) {
+          written += err.insertedDocs.length;
+        }
+        logger.error(
+          { error: err?.message },
+          "Bulk audit log partial failure"
+        );
+      }
+    }
+
+    logger.info(
+      { total: entries.length, written, skipped },
+      "Bulk audit log complete"
+    );
+
+    return { written, skipped };
+  }
+}
+
+/* ================= EXPORTS ================= */
+
+const auditService = new AuditService();
+
+export const logAudit = (params: LogAuditParams): Promise<void> =>
+  auditService.log(params);
+
+export default auditService;

@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 import Lead from "../leads/lead.model.js";
 import User from "../users/user.model.js";
+import Deal from "../deals/deal.model.js";
+import Alert from "../alerts/alert.model.js";
+
+/* ================= TYPES ================= */
 
 interface CurrentUser {
   _id: string;
@@ -8,19 +12,29 @@ interface CurrentUser {
   organizationId: string;
 }
 
+function toObjectId(id: string) {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new Error("Invalid ObjectId");
+  }
+  return new mongoose.Types.ObjectId(id);
+}
+
+/* ======================================================
+   🚀 DASHBOARD SERVICE (ELITE ANALYTICS)
+====================================================== */
 class DashboardService {
   async getSummary(currentUser: CurrentUser) {
-    const orgId = new mongoose.Types.ObjectId(currentUser.organizationId);
-    const userId = new mongoose.Types.ObjectId(currentUser._id);
+    const orgId = toObjectId(currentUser.organizationId);
+    const userId = toObjectId(currentUser._id);
 
     const baseMatch: any = {
       organizationId: orgId,
       isArchived: false,
     };
 
-    /* ===============================
-       ROLE VISIBILITY
-    =============================== */
+    /* ======================================================
+       🔐 ROLE VISIBILITY
+    ====================================================== */
 
     if (currentUser.role === "AGENT") {
       baseMatch.assignedTo = userId;
@@ -30,7 +44,9 @@ class DashboardService {
       const teamMembers = await User.find({
         organizationId: orgId,
         managerId: userId,
-      }).select("_id");
+      })
+        .select("_id")
+        .lean();
 
       const teamIds = teamMembers.map((u) => u._id);
 
@@ -39,78 +55,228 @@ class DashboardService {
       };
     }
 
-    /* ===============================
-       TOTAL LEADS
-    =============================== */
+    /* ======================================================
+       🚀 PARALLEL CORE QUERIES
+    ====================================================== */
 
-    const totalLeads = await Lead.countDocuments(baseMatch);
+    const [
+      totalLeads,
+      stageAggregation,
+      leadsByAgent,
+      closedCount,
 
-    /* ===============================
-       LEADS BY STAGE
-    =============================== */
+      /* 💰 DEAL DATA */
+      deals,
 
-    const stageAggregation = await Lead.aggregate([
-      { $match: baseMatch },
-      {
-        $group: {
-          _id: "$stage",
-          count: { $sum: 1 },
+      /* 🚨 ALERT DATA */
+      alerts,
+
+      /* 📈 TREND DATA */
+      recentLeads,
+    ] = await Promise.all([
+      Lead.countDocuments(baseMatch),
+
+      Lead.aggregate([
+        { $match: baseMatch },
+        {
+          $group: {
+            _id: "$stageId",
+            count: { $sum: 1 },
+          },
         },
-      },
+      ]),
+
+      Lead.aggregate([
+        { $match: baseMatch },
+        {
+          $group: {
+            _id: "$assignedTo",
+            total: { $sum: 1 },
+          },
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "_id",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        { $unwind: "$user" },
+        {
+          $project: {
+            userId: "$_id",
+            name: "$user.name",
+            total: 1,
+          },
+        },
+      ]),
+
+      Lead.countDocuments({
+        ...baseMatch,
+        probability: 100,
+      }),
+
+      /* 💰 DEALS */
+      Deal.find({ organizationId: orgId }).lean(),
+
+      /* 🚨 ALERTS */
+      Alert.find({
+        organizationId: orgId,
+        status: "active",
+      }).lean(),
+
+      /* 📈 LAST 7 DAYS LEADS */
+      Lead.countDocuments({
+        ...baseMatch,
+        createdAt: {
+          $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        },
+      }),
     ]);
 
-    const leadsByStage: any = {};
+    /* ======================================================
+       📊 TRANSFORM STAGE DATA
+    ====================================================== */
+
+    const leadsByStage: Record<string, number> = {};
     stageAggregation.forEach((item) => {
-      leadsByStage[item._id] = item.count;
+      leadsByStage[String(item._id)] = item.count;
     });
 
-    /* ===============================
-       LEADS BY AGENT
-    =============================== */
-
-    const leadsByAgent = await Lead.aggregate([
-      { $match: baseMatch },
-      {
-        $group: {
-          _id: "$assignedTo",
-          total: { $sum: 1 },
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "_id",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      { $unwind: "$user" },
-      {
-        $project: {
-          userId: "$_id",
-          name: "$user.email",
-          total: 1,
-        },
-      },
-    ]);
-
-    /* ===============================
-       CONVERSION RATE
-    =============================== */
-
-    const closedCount = await Lead.countDocuments({
-      ...baseMatch,
-      stage: "CLOSED",
-    });
+    /* ======================================================
+       📈 CONVERSION RATE
+    ====================================================== */
 
     const conversionRate =
-      totalLeads === 0 ? 0 : (closedCount / totalLeads) * 100;
+      totalLeads === 0
+        ? 0
+        : Number(((closedCount / totalLeads) * 100).toFixed(2));
+
+    /* ======================================================
+       💰 REVENUE ANALYTICS
+    ====================================================== */
+
+    let totalRevenue = 0;
+    let expectedRevenue = 0;
+
+    deals.forEach((deal: any) => {
+      totalRevenue += deal.value || 0;
+      expectedRevenue += (deal.value * deal.probability) / 100;
+    });
+
+    /* ======================================================
+       🧠 RISK ANALYTICS
+    ====================================================== */
+
+    type RiskLevel = "low" | "medium" | "high" | "critical";
+
+const riskDistribution: Record<RiskLevel, number> = {
+  low: 0,
+  medium: 0,
+  high: 0,
+  critical: 0,
+};
+
+deals.forEach((deal: any) => {
+  const level = deal.riskLevel as RiskLevel;
+  if (level in riskDistribution) {
+    riskDistribution[level]++;
+  }
+});
+
+    /* ======================================================
+       🚨 ALERT ANALYTICS
+    ====================================================== */
+
+    const alertSummary = {
+      total: alerts.length,
+      unread: alerts.filter((a: any) => !a.isRead).length,
+      critical: alerts.filter((a: any) => a.severity === "high").length,
+    };
+
+    /* ======================================================
+       ⚡ PIPELINE HEALTH SCORE
+    ====================================================== */
+
+    const avgProbability =
+      deals.length === 0
+        ? 0
+        : deals.reduce((sum, d: any) => sum + d.probability, 0) /
+          deals.length;
+
+    const staleDeals = deals.filter(
+      (d: any) =>
+        (Date.now() - new Date(d.lastActivityAt).getTime()) /
+          (1000 * 60 * 60 * 24) >
+        7
+    ).length;
+
+    const pipelineHealthScore = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          avgProbability * 0.6 + (1 - staleDeals / (deals.length || 1)) * 40
+        )
+      )
+    );
+
+    /* ======================================================
+       🎯 INSIGHTS ENGINE
+    ====================================================== */
+
+    const insights: string[] = [];
+
+    if (staleDeals > 3) {
+      insights.push(`${staleDeals} deals are inactive >7 days`);
+    }
+
+    if (alertSummary.critical > 0) {
+      insights.push(`${alertSummary.critical} critical alerts need attention`);
+    }
+
+    if (conversionRate < 20) {
+      insights.push("Conversion rate is low");
+    }
+
+    if (expectedRevenue < totalRevenue * 0.5) {
+      insights.push("Revenue risk is high");
+    }
+
+    /* ======================================================
+       🚀 FINAL RESPONSE
+    ====================================================== */
 
     return {
+      /* CORE */
       totalLeads,
       leadsByStage,
       leadsByAgent,
       conversionRate,
+
+      /* 💰 REVENUE */
+      revenue: {
+        total: totalRevenue,
+        expected: Math.round(expectedRevenue),
+      },
+
+      /* 🧠 RISK */
+      riskDistribution,
+
+      /* 🚨 ALERTS */
+      alerts: alertSummary,
+
+      /* 📈 TRENDS */
+      trends: {
+        last7DaysLeads: recentLeads,
+      },
+
+      /* ⚡ HEALTH */
+      pipelineHealthScore,
+
+      /* 🎯 INSIGHTS */
+      insights,
     };
   }
 }

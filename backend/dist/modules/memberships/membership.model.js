@@ -1,0 +1,86 @@
+import mongoose, { Schema } from "mongoose";
+/* =====================================================
+   SCHEMA
+===================================================== */
+const membershipSchema = new Schema({
+    userId: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+        index: true,
+    },
+    teamId: {
+        type: Schema.Types.ObjectId,
+        ref: "Team",
+        required: true,
+        index: true,
+    },
+    role: {
+        type: String,
+        enum: ["ORG_ADMIN", "MANAGER", "AGENT", "USER"],
+        required: true,
+        index: true,
+    },
+    /* ================= STATE ================= */
+    status: {
+        type: String,
+        enum: ["INVITED", "ACTIVE", "SUSPENDED", "REMOVED"],
+        default: "ACTIVE",
+        index: true,
+    },
+    /* ================= AUDIT ================= */
+    invitedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+    },
+    joinedAt: {
+        type: Date,
+        default: Date.now,
+    },
+    /* ================= FLAGS ================= */
+    isPrimary: {
+        type: Boolean,
+        default: false,
+        index: true,
+    },
+}, {
+    timestamps: true,
+});
+/* =====================================================
+   🔥 DATA NORMALIZATION
+===================================================== */
+membershipSchema.pre("validate", function () {
+    const doc = this;
+    // Ensure joinedAt only for ACTIVE users
+    if (doc.status !== "ACTIVE") {
+        doc.joinedAt = null;
+    }
+    // ORG_ADMIN must always be ACTIVE
+    if (doc.role === "ORG_ADMIN") {
+        doc.status = "ACTIVE";
+    }
+});
+/* =====================================================
+   🔥 UNIQUE CONSTRAINT
+===================================================== */
+// Prevent duplicate membership
+membershipSchema.index({ userId: 1, teamId: 1 }, { unique: true });
+/* =====================================================
+   🚀 ENTERPRISE INDEXES
+===================================================== */
+// team-based queries (dashboard, members list)
+membershipSchema.index({ teamId: 1, status: 1 });
+// user-based queries (multi-team support)
+membershipSchema.index({ userId: 1, status: 1 });
+// role-based filtering (RBAC)
+membershipSchema.index({ teamId: 1, role: 1 });
+// primary team lookup
+membershipSchema.index({ userId: 1, isPrimary: 1 });
+/* =====================================================
+   MODEL (SAFE EXPORT)
+===================================================== */
+const Membership = mongoose.models.Membership ||
+    mongoose.model("Membership", membershipSchema);
+export default Membership;
+//# sourceMappingURL=membership.model.js.map

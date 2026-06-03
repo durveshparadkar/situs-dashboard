@@ -1,77 +1,108 @@
-import { eventBus } from "../../shared/events/eventBus.js";
+import { Types } from "mongoose";
+import {
+  eventBus,
+  type LeadCreatedPayload,
+  type LeadStageChangedPayload,
+} from "../../shared/events/eventBus.js";
 import Lead from "./lead.model.js";
-import Pipeline from "../pipelines/pipeline.model.js";
 import whatsappService from "../whatsapp/whatsapp.service.js";
 
 /* =====================================================
-   LEAD CREATED
+   HELPERS
 ===================================================== */
-eventBus.on("LEAD_CREATED", async (payload) => {
-  try {
-    const lead = await Lead.findById(payload.entityId);
 
+function toObjectId(id: string): Types.ObjectId | null {
+  if (!Types.ObjectId.isValid(id)) return null;
+  return new Types.ObjectId(id);
+}
+
+/* =====================================================
+   WHATSAPP SAFE WRAPPER (NO CRASH)
+===================================================== */
+
+async function safeWhatsAppSend(
+  phone: string,
+  template: string,
+  variables: Record<string, unknown>
+) {
+  try {
+    await whatsappService.sendTemplateMessage(
+      phone,
+      template,
+      variables
+    );
+  } catch (err) {
+    console.error("WhatsApp failed:", {
+      template,
+      phone,
+      error: err,
+    });
+  }
+}
+
+/* =====================================================
+   LEAD CREATED
+   Bus publishes: { leadId, organizationId, source?, stage?, assignedTo? }
+===================================================== */
+
+eventBus.on("LEAD_CREATED", async (payload: LeadCreatedPayload) => {
+  const leadObjId = toObjectId(payload.leadId);
+  if (!leadObjId) return;
+
+  try {
+    const lead = await Lead.findById(leadObjId).lean();
     if (!lead) return;
 
-    // Basic welcome template
-    await whatsappService.sendTemplateMessage(
-      lead.phone,
-      "lead_created_template",
-      {
-        name: lead.name,
-      }
-    );
+    /* Lead model may not have phone/name fields typed strictly — read safely */
+    const phone = (lead as unknown as { phone?: string }).phone;
+    const name  = (lead as unknown as { name?:  string }).name;
+    if (!phone) return;
 
-    console.log("✅ WhatsApp sent for LEAD_CREATED:", lead._id);
+    await safeWhatsAppSend(phone, "lead_created_template", {
+      name: name ?? "Customer",
+    });
+
+    console.log("LEAD_CREATED processed:", String(lead._id));
   } catch (error) {
-    console.error("❌ LEAD_CREATED listener error:", error);
+    console.error("LEAD_CREATED listener error:", error);
   }
 });
 
 /* =====================================================
    LEAD STAGE CHANGED
+   Bus publishes the stage NAME directly (newStage), not an id.
+   No pipeline lookup needed.
 ===================================================== */
-eventBus.on("LEAD_STAGE_CHANGED", async (payload) => {
-  try {
-    const lead = await Lead.findById(payload.leadId);
 
-    if (!lead) return;
+const STAGE_ACTIONS: Record<string, { template: string }> = {
+  "Site Visit":   { template: "site_visit_reminder" },
+  "Closed Won":   { template: "closed_won_congratulations" },
+};
 
-    const pipeline = await Pipeline.findById(lead.pipelineId);
-    if (!pipeline) return;
+eventBus.on(
+  "LEAD_STAGE_CHANGED",
+  async (payload: LeadStageChangedPayload) => {
+    const leadObjId = toObjectId(payload.leadId);
+    if (!leadObjId) return;
 
-    const stage = pipeline.stages.find(
-      (s: any) => s._id.toString() === payload.newStageId
-    );
+    const action = STAGE_ACTIONS[payload.newStage];
+    if (!action) return;
 
-    if (!stage) return;
+    try {
+      const lead = await Lead.findById(leadObjId).lean();
+      if (!lead) return;
 
-    // 🔥 Rule 1 — Site Visit
-    if (stage.name === "Site Visit") {
-      await whatsappService.sendTemplateMessage(
-        lead.phone,
-        "site_visit_reminder",
-        {
-          name: lead.name,
-        }
-      );
+      const phone = (lead as unknown as { phone?: string }).phone;
+      const name  = (lead as unknown as { name?:  string }).name;
+      if (!phone) return;
+
+      await safeWhatsAppSend(phone, action.template, {
+        name: name ?? "Customer",
+      });
+
+      console.log("Stage automation:", payload.newStage);
+    } catch (error) {
+      console.error("LEAD_STAGE_CHANGED error:", error);
     }
-
-    // 🔥 Rule 2 — Closed Won
-    if (stage.name === "Closed Won") {
-      await whatsappService.sendTemplateMessage(
-        lead.phone,
-        "closed_won_congratulations",
-        {
-          name: lead.name,
-        }
-      );
-    }
-
-    console.log(
-      "✅ WhatsApp automation triggered for stage:",
-      stage.name
-    );
-  } catch (error) {
-    console.error("❌ LEAD_STAGE_CHANGED listener error:", error);
   }
-});
+);

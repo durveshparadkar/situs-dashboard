@@ -1,16 +1,14 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import Lead from "./lead.model.js";
 import User from "../users/user.model.js";
-import Pipeline, { IStage } from "../pipelines/pipeline.model.js";
+import Pipeline from "../pipelines/pipeline.model.js";
 import { CreateLeadInput, UpdateLeadInput } from "./lead.schema.js";
 import { logLeadActivity } from "../leadActivity/leadActivity.service.js";
 import LeadActivity from "../leadActivity/leadActivity.model.js";
 import leadScoreService from "./leadScore.service.js";
 import { brainQueue } from "../brain/brain.queue.js";
 
-/* =====================================================
-   TYPES
-===================================================== */
+/* ================= TYPES ================= */
 
 interface PaginationQuery {
   page?: number;
@@ -27,307 +25,181 @@ interface CurrentUser {
 type LeadFilter = Record<string, unknown>;
 
 class LeadService {
-  /* =====================================================
-     ERROR HELPER
-  ===================================================== */
+  /* ================= CORE UTILS ================= */
 
   private throwError(message: string, status: number): never {
-    const error = new Error(message) as Error & { status?: number };
-    error.status = status;
-    throw error;
+    const err = new Error(message) as Error & { status?: number };
+    err.status = status;
+    throw err;
   }
 
-  /* =====================================================
-     BRAIN SCHEDULER
-  ===================================================== */
-
-  private async scheduleBrainAnalysis(leadId: string) {
-    await brainQueue.add(
-      "analyze",
-      { leadId },
-      {
-        jobId: `brain-${leadId}`,
-        delay: 2000,
-        removeOnComplete: true,
-      }
-    );
+  private toObjectId(id: string): Types.ObjectId {
+    if (!Types.ObjectId.isValid(id)) {
+      this.throwError("Invalid ID", 400);
+    }
+    return new Types.ObjectId(id);
   }
 
-  /* =====================================================
-     VISIBILITY ENGINE
-  ===================================================== */
+  /* ================= BACKGROUND TASKS ================= */
 
-  private async buildVisibilityFilter(
-    currentUser: CurrentUser
-  ): Promise<LeadFilter> {
-    const orgId = new mongoose.Types.ObjectId(
-      currentUser.organizationId
-    );
+  private async triggerAsync(leadId: string) {
+    Promise.allSettled([
+      leadScoreService.calculateLeadScore(leadId),
+      this.queueBrain(leadId),
+    ]);
+  }
 
-    const baseFilter: LeadFilter = { organizationId: orgId };
+  private async queueBrain(leadId: string) {
+    try {
+      await brainQueue.add(
+        "analyze",
+        {
+          leadId,
+          type: "analyze_lead",
+          organizationId: ""
+        },
+        {
+          jobId: `brain-${leadId}`,
+          delay: 2000,
+          removeOnComplete: true,
+        }
+      );
+    } catch {
+      console.warn("⚠️ Brain skipped");
+    }
+  }
 
-    if (currentUser.role === "org_admin") return baseFilter;
+  /* ================= VISIBILITY ================= */
 
-    if (currentUser.role === "agent") {
+  private async buildFilter(user: CurrentUser): Promise<LeadFilter> {
+    const orgId = this.toObjectId(user.organizationId);
+
+    if (user.role === "org_admin") {
+      return { organizationId: orgId };
+    }
+
+    if (user.role === "agent") {
       return {
-        ...baseFilter,
-        assignedTo: new mongoose.Types.ObjectId(currentUser._id),
+        organizationId: orgId,
+        assignedTo: this.toObjectId(user._id),
       };
     }
 
-    if (currentUser.role === "manager") {
-      const teamMembers = await User.find({
+    if (user.role === "manager") {
+      const team = await User.find({
         organizationId: orgId,
-        managerId: new mongoose.Types.ObjectId(currentUser._id),
+        managerId: this.toObjectId(user._id),
       })
         .select("_id")
         .lean();
 
-      const teamIds = teamMembers.map((u) => u._id);
-
       return {
-        ...baseFilter,
+        organizationId: orgId,
         assignedTo: {
           $in: [
-            new mongoose.Types.ObjectId(currentUser._id),
-            ...teamIds,
+            this.toObjectId(user._id),
+            ...team.map((t) => t._id),
           ],
         },
       };
     }
 
-    return baseFilter;
+    return { organizationId: orgId };
   }
 
-  /* =====================================================
-     CREATE
-  ===================================================== */
+  /* ================= CREATE ================= */
 
-  async create(data: CreateLeadInput, currentUser: CurrentUser) {
-    const orgId = new mongoose.Types.ObjectId(currentUser.organizationId);
-    const userId = new mongoose.Types.ObjectId(currentUser._id);
+  async create(data: CreateLeadInput, user: CurrentUser) {
+    const session = await mongoose.startSession();
 
-    const defaultPipeline = await Pipeline.findOne({
-      organizationId: orgId,
-      isDefault: true,
-    });
+    try {
+      let createdId: Types.ObjectId | null = null;
 
-    if (!defaultPipeline)
-      this.throwError("No default pipeline found", 400);
+      await session.withTransaction(async () => {
+        const orgId = this.toObjectId(user.organizationId);
+        const userId = this.toObjectId(user._id);
 
-    if (!defaultPipeline.stages?.length)
-      this.throwError("Default pipeline has no stages", 400);
+        const pipeline = await Pipeline.findOne({
+          organizationId: orgId,
+          isDefault: true,
+        }).session(session);
 
-    const firstStage: IStage = [...defaultPipeline.stages].sort(
-      (a, b) => a.order - b.order
-    )[0];
+        if (!pipeline) this.throwError("No default pipeline", 400);
 
-    const lead = await Lead.create({
-      ...data,
-      organizationId: orgId,
-      assignedTo: userId,
-      pipelineId: defaultPipeline._id,
-      stageId: firstStage._id,
-      probability: firstStage.probability,
-      lastActivityAt: new Date(),
-      isArchived: false,
-    });
+        const stage = pipeline.stages
+          .slice()
+          .sort((a, b) => a.order - b.order)[0];
 
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "CREATED",
-      userId: currentUser._id,
-      newValue: lead,
-    });
+        if (!stage) this.throwError("No stages found", 400);
 
-    await leadScoreService.calculateLeadScore(lead._id.toString());
-    await this.scheduleBrainAnalysis(lead._id.toString());
+        /* ✅ CLEAN PAYLOAD (NO UNDEFINED ANYWHERE) */
+        const payload = {
+          name: data.name,
+          phone: data.phone,
+          email: data.email ?? null,
+          budget: data.budget,
+          interestedLocation: data.interestedLocation,
+          source: data.source,
 
-    return lead;
-  }
+          organizationId: orgId,
+          assignedTo: userId,
+          pipelineId: pipeline._id,
+          stageId: stage._id,
+          probability: stage.probability,
 
-  /* =====================================================
-     REQUEST ESCALATION (AGENT ONLY)
-  ===================================================== */
+          lastActivityAt: new Date(),
+          isArchived: false,
+        };
 
-  async requestEscalation(id: string, currentUser: CurrentUser) {
-    if (currentUser.role !== "agent") {
-      this.throwError("Only agents can request escalation", 403);
+        const doc = await new Lead(payload).save({ session });
+
+        createdId = doc._id as Types.ObjectId;
+
+        await logLeadActivity({
+          leadId: createdId.toString(),
+          action: "CREATED",
+          userId: user._id,
+        });
+      });
+
+     if (!createdId) {
+  this.throwError("Creation failed", 500);
+}
+
+// 🔥 TYPE SAFE CAST (guaranteed after check)
+const leadId = createdId as mongoose.Types.ObjectId;
+
+this.triggerAsync(leadId.toString());
+
+return Lead.findById(leadId);
+    } finally {
+      session.endSession();
     }
-
-    const lead = await this.findOne(id, currentUser);
-
-    if (lead.escalation?.recommended) {
-      this.throwError("Escalation already requested", 400);
-    }
-
-    lead.escalation = {
-      recommended: true,
-      approved: false,
-      approvedAt: null,
-      approvedBy: null,
-    };
-
-    lead.lastActivityAt = new Date();
-    await lead.save();
-
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "ESCALATION_REQUESTED",
-      userId: currentUser._id,
-    });
-
-    await this.scheduleBrainAnalysis(id);
-
-    return lead;
   }
 
-  /* =====================================================
-     APPROVE ESCALATION (MANAGER / ORG ADMIN)
-  ===================================================== */
+  /* ================= FIND ================= */
 
-  async approveEscalation(id: string, currentUser: CurrentUser) {
-    if (
-      currentUser.role !== "manager" &&
-      currentUser.role !== "org_admin"
-    ) {
-      this.throwError("Unauthorized", 403);
-    }
+  async findAll(query: PaginationQuery, user: CurrentUser) {
+    const filter = await this.buildFilter(user);
 
-    const lead = await Lead.findById(id);
-    if (!lead) this.throwError("Lead not found", 404);
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(50, Number(query.limit) || 10);
 
-    if (!lead.escalation?.recommended)
-      this.throwError("No escalation to approve", 400);
-
-    if (lead.escalation.approved)
-      this.throwError("Escalation already approved", 400);
-
-    const managerId = new mongoose.Types.ObjectId(currentUser._id);
-
-    lead.assignedTo = managerId;
-
-    lead.escalation = {
-      ...lead.escalation,
-      approved: true,
-      approvedAt: new Date(),
-      approvedBy: managerId,
-    };
-
-    lead.lastActivityAt = new Date();
-    await lead.save();
-
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "ESCALATION_APPROVED",
-      userId: currentUser._id,
-    });
-
-    await this.scheduleBrainAnalysis(id);
-
-    return lead;
-  }
-
-  /* =====================================================
-     UPDATE STAGE
-  ===================================================== */
-
-  async updateStage(
-    id: string,
-    stageName: string,
-    currentUser: CurrentUser
-  ) {
-    const lead = await this.findOne(id, currentUser);
-
-    const pipeline = await Pipeline.findById(lead.pipelineId);
-    if (!pipeline) this.throwError("Pipeline not found", 404);
-
-    const previousStageId = lead.stageId;
-
-    const nextStage = pipeline.stages.find(
-      (s: IStage) =>
-        s.name.toLowerCase() === stageName.toLowerCase()
-    );
-
-    if (!nextStage)
-      this.throwError(`Stage '${stageName}' does not exist`, 400);
-
-    lead.stageId = nextStage._id;
-    lead.probability = nextStage.probability;
-    lead.lastActivityAt = new Date();
-
-    await lead.save();
-
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "STAGE_CHANGED",
-      userId: currentUser._id,
-      previousValue: { stageId: previousStageId },
-      newValue: { stageId: nextStage._id },
-    });
-
-    await leadScoreService.calculateLeadScore(id);
-    await this.scheduleBrainAnalysis(id);
-
-    return lead;
-  }
-
-  /* =====================================================
-     ARCHIVE / RESTORE
-  ===================================================== */
-
-  async archive(id: string, currentUser: CurrentUser) {
-    const lead = await this.findOne(id, currentUser);
-    lead.isArchived = true;
-    await lead.save();
-
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "ARCHIVED",
-      userId: currentUser._id,
-    });
-
-    return lead;
-  }
-
-  async restore(id: string, currentUser: CurrentUser) {
-    const lead = await this.findOne(id, currentUser);
-    lead.isArchived = false;
-    await lead.save();
-
-    await logLeadActivity({
-      leadId: lead._id.toString(),
-      action: "RESTORED",
-      userId: currentUser._id,
-    });
-
-    return lead;
-  }
-
-  /* =====================================================
-     FIND ALL / FIND ONE
-  ===================================================== */
-
-  async findAll(query: PaginationQuery, currentUser: CurrentUser) {
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
-
-    const page = Number(query.page) || 1;
-    const limit = Number(query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    const filter: Record<string, unknown> = { ...visibilityFilter };
+    const mongoFilter: any = { ...filter };
 
     if (query.search) {
-      filter.$or = [
+      mongoFilter.$or = [
         { name: { $regex: query.search, $options: "i" } },
         { email: { $regex: query.search, $options: "i" } },
       ];
     }
 
     const [data, total] = await Promise.all([
-      Lead.find(filter).skip(skip).limit(limit),
-      Lead.countDocuments(filter),
+      Lead.find(mongoFilter)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      Lead.countDocuments(mongoFilter),
     ]);
 
     return {
@@ -338,81 +210,127 @@ class LeadService {
     };
   }
 
-  async findOne(id: string, currentUser: CurrentUser) {
-    if (!mongoose.Types.ObjectId.isValid(id))
-      this.throwError("Invalid lead ID", 400);
-
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
+  async findOne(id: string, user: CurrentUser) {
+    const filter = await this.buildFilter(user);
 
     const lead = await Lead.findOne({
-      _id: new mongoose.Types.ObjectId(id),
-      ...visibilityFilter,
+      _id: this.toObjectId(id),
+      ...filter,
     });
 
-    if (!lead)
-      this.throwError("Lead not found or access denied", 404);
+    if (!lead) this.throwError("Lead not found", 404);
 
     return lead;
   }
 
-  /* =====================================================
-     UPDATE
-  ===================================================== */
+  /* ================= UPDATE ================= */
 
-  async update(
-    id: string,
-    data: UpdateLeadInput,
-    currentUser: CurrentUser
-  ) {
-    const existing = await this.findOne(id, currentUser);
+  async update(id: string, data: UpdateLeadInput, user: CurrentUser) {
+    const existing = await this.findOne(id, user);
 
-    const updatedLead = await Lead.findByIdAndUpdate(
+    const update: any = { ...data };
+
+    if ("email" in update) {
+      update.email = update.email ?? null;
+    }
+
+    const updated = await Lead.findByIdAndUpdate(
       existing._id,
-      { ...data, lastActivityAt: new Date() },
-      { new: true, runValidators: true }
+      {
+        ...update,
+        lastActivityAt: new Date(),
+      },
+      { new: true }
     );
 
-    await leadScoreService.calculateLeadScore(id);
-    await this.scheduleBrainAnalysis(id);
+    if (!updated) this.throwError("Update failed", 500);
 
-    return updatedLead;
+    await logLeadActivity({
+      leadId: id,
+      action: "UPDATED",
+      userId: user._id,
+    });
+
+    this.triggerAsync(id);
+
+    return updated;
   }
 
-  /* =====================================================
-     ACTIVITIES
-  ===================================================== */
+  /* ================= STAGE ================= */
 
-  async getActivities(
-    leadId: string,
-    currentUser: CurrentUser
-  ) {
-    await this.findOne(leadId, currentUser);
+  async updateStage(id: string, stageName: string, user: CurrentUser) {
+    const lead = await this.findOne(id, user);
 
-    return LeadActivity.find({ lead: leadId })
+    const pipeline = await Pipeline.findById(lead.pipelineId).lean();
+    if (!pipeline) this.throwError("Pipeline not found", 404);
+
+    const stage = pipeline.stages.find(
+      (s) => s.name.toLowerCase() === stageName.toLowerCase()
+    );
+
+    if (!stage) this.throwError("Invalid stage", 400);
+
+    lead.stageId = stage._id;
+    lead.probability = stage.probability;
+    lead.lastActivityAt = new Date();
+
+    await lead.save();
+
+    await logLeadActivity({
+      leadId: id,
+      action: "STAGE_CHANGED",
+      userId: user._id,
+    });
+
+    this.triggerAsync(id);
+
+    return lead;
+  }
+
+  /* ================= ARCHIVE ================= */
+
+  async archive(id: string, user: CurrentUser) {
+    const lead = await this.findOne(id, user);
+
+    lead.isArchived = true;
+    await lead.save();
+
+    return lead;
+  }
+
+  async restore(id: string, user: CurrentUser) {
+    const lead = await this.findOne(id, user);
+
+    lead.isArchived = false;
+    await lead.save();
+
+    return lead;
+  }
+
+  /* ================= ACTIVITIES ================= */
+
+  async getActivities(id: string, user: CurrentUser) {
+    await this.findOne(id, user);
+
+    return LeadActivity.find({ lead: id })
       .sort({ createdAt: -1 })
-      .populate("performedBy", "email role");
+      .lean();
   }
 
-  async getIntelligenceSummary(
-    currentUser: CurrentUser
-  ) {
-    const visibilityFilter =
-      await this.buildVisibilityFilter(currentUser);
+  /* ================= SUMMARY ================= */
 
-    const totalLeads =
-      await Lead.countDocuments(visibilityFilter);
+  async getIntelligenceSummary(user: CurrentUser) {
+    const filter = await this.buildFilter(user);
 
-    const archivedLeads =
-      await Lead.countDocuments({
-        ...visibilityFilter,
-        isArchived: true,
-      });
+    const [total, archived] = await Promise.all([
+      Lead.countDocuments(filter),
+      Lead.countDocuments({ ...filter, isArchived: true }),
+    ]);
 
     return {
-      totalLeads,
-      activeLeads: totalLeads - archivedLeads,
-      archivedLeads,
+      totalLeads: total,
+      activeLeads: total - archived,
+      archivedLeads: archived,
     };
   }
 }
