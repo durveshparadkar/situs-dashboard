@@ -46,7 +46,10 @@ if (!data?.success) {
   return;
 }
 
-      router.push("/dashboard");
+console.log("LOGIN SUCCESS");
+console.log("Redirecting to dashboard...");
+
+window.location.href = "/dashboard";
     } catch (err: unknown) {
       console.error(err);
 
