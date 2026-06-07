@@ -66,10 +66,17 @@ app.use(helmet({
     crossOriginResourcePolicy: false,
 }));
 /* 🔥 CRITICAL: CORS FIX FOR COOKIES */
-app.use(cors({
-    origin: CLIENT_URL,
+const allowedOrigins = [
+  "https://situs-dashboard.vercel.app",
+  "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
     credentials: true,
-}));
+  })
+);
 /* 🔥 MUST COME BEFORE ROUTES */
 app.use(cookieParser());
 /* ===============================

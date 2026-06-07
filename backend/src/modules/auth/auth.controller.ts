@@ -171,6 +171,11 @@ function asResult(value: unknown): AuthServiceResult {
 }
 
 function setAuthCookies(res: Response, result: AuthServiceResult): void {
+  console.log("COOKIE DEBUG", {
+    accessToken: !!result.accessToken,
+    refreshToken: !!result.refreshToken,
+  });
+
   if (typeof result.accessToken === "string") {
     res.cookie(
       AUTH_CONFIG.cookieNames.access,
@@ -178,6 +183,7 @@ function setAuthCookies(res: Response, result: AuthServiceResult): void {
       buildCookieOptions(AUTH_CONFIG.accessTokenMaxAgeMs)
     );
   }
+
   if (typeof result.refreshToken === "string") {
     res.cookie(
       AUTH_CONFIG.cookieNames.refresh,
