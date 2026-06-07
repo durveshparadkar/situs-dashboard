@@ -2,8 +2,21 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  /**
+   * BASE_URL strategy:
+   *   - In the browser → ALWAYS empty string. Calls become relative paths
+   *     (/api/...) and go to the current origin (vercel.app). Next.js
+   *     rewrites then proxy them to the Render backend. This keeps cookies
+   *     working because the browser sees them as same-origin.
+   *   - On the server (SSR / server actions) → use NEXT_PUBLIC_API_URL or
+   *     localhost:5000 in dev, since the server can't make relative calls.
+   */
+  const isBrowser = typeof window !== "undefined";
+
+  const BASE_URL = isBrowser
+    ? ""
+    : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000");
+
   const REQUEST_TIMEOUT_MS = Number(
     process.env.NEXT_PUBLIC_API_TIMEOUT_MS || 20000
   );
@@ -22,7 +35,7 @@ export async function apiFetch<T = unknown>(
       cache: options.cache ?? "no-store",
       ...options,
       headers: {
-        ...(options.body && { "Content-Type": "application/json" }), // ✅ FIX
+        ...(options.body && { "Content-Type": "application/json" }),
         ...(options.headers || {}),
       },
       signal: controller.signal,
@@ -40,7 +53,7 @@ export async function apiFetch<T = unknown>(
     } else {
       const text = await res.text();
 
-      console.error("❌ Non-JSON response:", text);
+      console.error("Non-JSON response:", text);
 
       throw new Error(
         "Server returned invalid response (check API URL)"
