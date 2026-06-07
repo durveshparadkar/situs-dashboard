@@ -28,20 +28,23 @@ export default function LoginPage() {
 
       /* Backend sets httpOnly accessToken + refreshToken cookies on success */
       const data = await apiFetch<{
-        success: boolean;
-        message?: string;
-      }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password: password,
-        }),
-      });
+  success?: boolean;
+  message?: string;
+}>("/api/auth/login", {
+  method: "POST",
+  body: JSON.stringify({
+    email: email.trim().toLowerCase(),
+    password: password,
+  }),
+});
 
-      if (!data?.success) {
-        setError(data?.message || "Invalid credentials");
-        return;
-      }
+console.log("LOGIN RESPONSE:", data);
+console.log("SUCCESS VALUE:", data?.success);
+
+if (!data?.success) {
+  setError(data?.message || "Invalid credentials");
+  return;
+}
 
       router.push("/dashboard");
     } catch (err: unknown) {
