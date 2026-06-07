@@ -83,9 +83,14 @@ app.use(
 );
 
 /* 🔥 CRITICAL: CORS FIX FOR COOKIES */
+const allowedOrigins = [
+  "https://situs-dashboard.vercel.app",
+  "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
+];
+
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: allowedOrigins,
     credentials: true,
   })
 );
