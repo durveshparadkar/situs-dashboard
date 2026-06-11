@@ -110,6 +110,7 @@ export const GLOBAL_STYLES = `
     color: var(--t-primary);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    overflow-x: hidden;
   }
 
   ::selection { background: rgba(99,102,241,0.2); color: var(--c-ink); }
@@ -274,15 +275,73 @@ export const GLOBAL_STYLES = `
   @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @keyframes float   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 
-  /* ── Responsive (Fitts on mobile: full-width CTAs) ── */
-  @media (max-width: 768px) {
-    :root { --gutter: 24px; --section-y: 96px; }
-    .nav-links { display: none !important; }
-    .two-col   { grid-template-columns: 1fr !important; gap: 48px !important; }
-    .three-col { grid-template-columns: 1fr 1fr !important; }
-    .four-col  { grid-template-columns: 1fr 1fr !important; }
+  /* ══════════════════════════════════════════════════════════════
+     RESPONSIVE — tablet & mobile
+     Fixes: squished columns, oversized text, excessive spacing
+     ══════════════════════════════════════════════════════════════ */
+
+  /* ── Tablet & down (≤900px) ── */
+  @media (max-width: 900px) {
+    :root { --gutter: 24px; --section-y: 72px; }
+
+    /* Every multi-column grid collapses to ONE column */
+    .four-col,
+    .three-col,
+    .two-col {
+      grid-template-columns: 1fr !important;
+      gap: 16px !important;
+    }
+
+    /* Catch inline-styled grids too (Hero stats, dashboard metrics, etc.) */
+    [style*="grid-template-columns"] {
+      grid-template-columns: 1fr !important;
+      gap: 12px !important;
+    }
+
+    /* Bento "large" cards stop spanning 2 columns */
+    .span-2 { grid-column: span 1 !important; }
+
+    .nav-links   { display: none !important; }
     .hide-mobile { display: none !important; }
-    .btn { width: 100%; }
+
+    /* Buttons full-width & stacked */
+    .btn     { width: 100%; }
     .btn-row { flex-direction: column; align-items: stretch !important; }
+
+    /* Shrink headlines & body text */
+    .h-display { font-size: clamp(30px, 8.5vw, 42px) !important; line-height: 1.1  !important; }
+    .h-section { font-size: clamp(24px, 6.5vw, 34px) !important; line-height: 1.15 !important; }
+    .t-lead    { font-size: 16px !important; }
+    .t-body    { font-size: 13px !important; }
+
+    /* Tame the big section side-padding */
+    section, footer {
+      padding-left: 24px !important;
+      padding-right: 24px !important;
+    }
+  }
+
+  /* ── Phones (≤480px) ── */
+  @media (max-width: 480px) {
+    :root { --gutter: 16px; --section-y: 56px; }
+
+    .h-display { font-size: 28px !important; }
+    .h-section { font-size: 22px !important; }
+    .t-lead    { font-size: 15px !important; }
+
+    section, footer {
+      padding-left: 16px !important;
+      padding-right: 16px !important;
+    }
+
+    /* Collapse the giant 100–140px vertical paddings on phones */
+    [style*="padding: 100px"],
+    [style*="padding: 120px"],
+    [style*="padding: 140px"] {
+      padding: 56px 16px !important;
+    }
+
+    /* Smaller radii feel tighter on small screens */
+    .card { border-radius: var(--r-md); }
   }
 `;
