@@ -158,13 +158,13 @@ export default function Nav() {
 
           {/* CTAs — exactly two (Hick's Law) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <a href={DEMO_URL} className="btn btn--secondary btn--sm">
-              Book Demo
-            </a>
-            <a href={DEMO_URL} className="btn btn--primary btn--sm">
-              Join Beta →
-            </a>
-          </div>
+  <a href={DEMO_URL} className="btn btn--secondary btn--sm hide-mobile">
+    Book Demo
+  </a>
+  <a href={DEMO_URL} className="btn btn--primary btn--sm">
+    Join Beta →
+  </a>
+</div>
 
         </div>
       </nav>
