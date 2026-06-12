@@ -67,16 +67,13 @@ app.use(helmet({
 }));
 /* 🔥 CRITICAL: CORS FIX FOR COOKIES */
 const allowedOrigins = [
-  "https://situs-dashboard.vercel.app",
-  "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
+    "https://situs-dashboard.vercel.app",
+    "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
 ];
-
-app.use(
-  cors({
+app.use(cors({
     origin: allowedOrigins,
     credentials: true,
-  })
-);
+}));
 /* 🔥 MUST COME BEFORE ROUTES */
 app.use(cookieParser());
 /* ===============================

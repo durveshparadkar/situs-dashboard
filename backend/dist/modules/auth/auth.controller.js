@@ -139,6 +139,10 @@ function asResult(value) {
     return {};
 }
 function setAuthCookies(res, result) {
+    console.log("COOKIE DEBUG", {
+        accessToken: !!result.accessToken,
+        refreshToken: !!result.refreshToken,
+    });
     if (typeof result.accessToken === "string") {
         res.cookie(AUTH_CONFIG.cookieNames.access, result.accessToken, buildCookieOptions(AUTH_CONFIG.accessTokenMaxAgeMs));
     }
