@@ -1,4 +1,4 @@
-export const DEMO_URL = "https://calendly.com/YOUR_LINK"; // replace later
+export const DEMO_URL = "https://calendly.com/durvesh-situsrevenue/30min"; // replace later
 
 export const FEATURES = [
   { icon: "◈", title: "Dashboard",       desc: "Unified revenue visibility across every metric that matters." },
