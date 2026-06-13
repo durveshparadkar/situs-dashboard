@@ -136,6 +136,17 @@ function sendAuthError(
   });
 }
 
+function normalizeSystemRole(value: unknown): Role | null {
+  if (typeof value !== "string") return null;
+
+  const role = value.trim().toUpperCase();
+
+  // Legacy invites stored admin users as ADMIN, but RBAC uses ORG_ADMIN.
+  if (role === "ADMIN") return "ORG_ADMIN";
+
+  return isValidRole(role) ? role : null;
+}
+
 // ============================================================
 // PROTECT MIDDLEWARE
 // ============================================================
@@ -264,8 +275,9 @@ export const protect: RequestHandler = async (req, res, next) => {
     const roleId         = userDoc.roleId ? String(userDoc.roleId) : undefined;
     let role: Role = "USER";
 
-    if (isValidRole(userDoc.role)) {
-      role = userDoc.role;
+    const normalizedUserRole = normalizeSystemRole(userDoc.role);
+    if (normalizedUserRole) {
+      role = normalizedUserRole;
     } else if (roleId) {
       const roleDoc = await withTimeout(
         RoleModel.findById(roleId).select("name").lean(),
@@ -273,8 +285,8 @@ export const protect: RequestHandler = async (req, res, next) => {
         "auth role lookup"
       );
 
-      const roleName = roleDoc?.name;
-      if (isValidRole(roleName)) {
+      const roleName = normalizeSystemRole(roleDoc?.name);
+      if (roleName) {
         role = roleName;
       } else {
         dbLogger.warn(

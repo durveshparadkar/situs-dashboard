@@ -11,7 +11,7 @@ import crypto from "crypto";
    ROLES
 ===================================================== */
 
-export const INVITE_ROLES = ["AGENT", "USER", "MANAGER", "ADMIN"] as const;
+export const INVITE_ROLES = ["AGENT", "USER", "MANAGER", "ORG_ADMIN", "ADMIN"] as const;
 export type InviteRole = (typeof INVITE_ROLES)[number];
 
 /* =====================================================

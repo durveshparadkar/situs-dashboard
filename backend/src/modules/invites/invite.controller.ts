@@ -63,11 +63,15 @@ const HttpStatus = {
    ZOD SCHEMAS
 ===================================================== */
 
-const VALID_ROLES = ["AGENT", "USER", "MANAGER", "ADMIN"] as const;
+const VALID_ROLES = ["AGENT", "USER", "MANAGER", "ORG_ADMIN", "ADMIN"] as const;
+
+function normalizeInviteRole(role: string): "AGENT" | "USER" | "MANAGER" | "ORG_ADMIN" {
+  return role === "ADMIN" ? "ORG_ADMIN" : role as "AGENT" | "USER" | "MANAGER" | "ORG_ADMIN";
+}
 
 const createInviteSchema = z.object({
   email:   z.string().email("Invalid email format").trim().toLowerCase(),
-  role:    z.enum(VALID_ROLES).optional().default("AGENT"),
+  role:    z.enum(VALID_ROLES).optional().default("AGENT").transform(normalizeInviteRole),
   message: z.string().trim().max(500).optional(),
 }).strict();
 
@@ -514,9 +518,11 @@ export const acceptInvite = asyncHandler(async (req, res) => {
         );
       }
 
+      const acceptedRole = normalizeInviteRole(invite.role);
+
       await User.findByIdAndUpdate(
         userId,
-        { $set: { organizationId: invite.organizationId, role: invite.role } },
+        { $set: { organizationId: invite.organizationId, role: acceptedRole } },
         { session }
       );
 
@@ -544,7 +550,7 @@ export const acceptInvite = asyncHandler(async (req, res) => {
       action:         "INVITE_ACCEPTED" as never,
       resource:       "INVITE" as never,
       resourceId:     (finalized._id as mongoose.Types.ObjectId).toString(),
-      after:          { acceptedBy: userEmail, role: finalized.role },
+      after:          { acceptedBy: userEmail, role: normalizeInviteRole(finalized.role) },
       requestContext: reqCtx,
     } as never);
 
@@ -558,7 +564,7 @@ export const acceptInvite = asyncHandler(async (req, res) => {
       message: "Invite accepted successfully",
       data: {
         organizationId: finalized.organizationId,
-        role:           finalized.role,
+        role:           normalizeInviteRole(finalized.role),
       },
     });
   } finally {

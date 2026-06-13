@@ -4,7 +4,7 @@ import crypto from "crypto";
 /* =====================================================
    ROLES
 ===================================================== */
-export const INVITE_ROLES = ["AGENT", "USER", "MANAGER", "ADMIN"];
+export const INVITE_ROLES = ["AGENT", "USER", "MANAGER", "ORG_ADMIN", "ADMIN"];
 /* =====================================================
    SCHEMA
 ===================================================== */

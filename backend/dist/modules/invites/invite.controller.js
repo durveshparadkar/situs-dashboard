@@ -53,10 +53,13 @@ const HttpStatus = {
 /* =====================================================
    ZOD SCHEMAS
 ===================================================== */
-const VALID_ROLES = ["AGENT", "USER", "MANAGER", "ADMIN"];
+const VALID_ROLES = ["AGENT", "USER", "MANAGER", "ORG_ADMIN", "ADMIN"];
+function normalizeInviteRole(role) {
+    return role === "ADMIN" ? "ORG_ADMIN" : role;
+}
 const createInviteSchema = z.object({
     email: z.string().email("Invalid email format").trim().toLowerCase(),
-    role: z.enum(VALID_ROLES).optional().default("AGENT"),
+    role: z.enum(VALID_ROLES).optional().default("AGENT").transform(normalizeInviteRole),
     message: z.string().trim().max(500).optional(),
 }).strict();
 const acceptInviteSchema = z.object({
@@ -351,7 +354,8 @@ export const acceptInvite = asyncHandler(async (req, res) => {
             if (!emailMatches) {
                 throw new AppError("This invite was issued to a different email address", HttpStatus.FORBIDDEN, "INVITE_EMAIL_MISMATCH");
             }
-            await User.findByIdAndUpdate(userId, { $set: { organizationId: invite.organizationId, role: invite.role } }, { session });
+            const acceptedRole = normalizeInviteRole(invite.role);
+            await User.findByIdAndUpdate(userId, { $set: { organizationId: invite.organizationId, role: acceptedRole } }, { session });
             invite.usedAt = new Date();
             invite.usedBy = userId;
             invite.acceptedFromIp = reqCtx.ipAddress ?? null;
@@ -368,7 +372,7 @@ export const acceptInvite = asyncHandler(async (req, res) => {
             action: "INVITE_ACCEPTED",
             resource: "INVITE",
             resourceId: finalized._id.toString(),
-            after: { acceptedBy: userEmail, role: finalized.role },
+            after: { acceptedBy: userEmail, role: normalizeInviteRole(finalized.role) },
             requestContext: reqCtx,
         });
         dbLogger.info(`Invite accepted: invite=${finalized._id} ` +
@@ -378,7 +382,7 @@ export const acceptInvite = asyncHandler(async (req, res) => {
             message: "Invite accepted successfully",
             data: {
                 organizationId: finalized.organizationId,
-                role: finalized.role,
+                role: normalizeInviteRole(finalized.role),
             },
         });
     }
