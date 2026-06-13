@@ -1,7 +1,7 @@
 "use client";
 
 import { Reveal } from "./shared/Reveal";
-import { DEMO_URL } from "./shared/constants";
+import { DEMO_URL, APP_URL } from "./shared/constants";
 
 const TRUST = ["No credit card required", "Setup in minutes", "Cancel anytime"];
 
@@ -116,7 +116,7 @@ export default function FinalCta() {
                 <a href={DEMO_URL} className="btn btn--white" style={{ padding: "15px 36px" }}>
                   Book Demo →
                 </a>
-                <a href={DEMO_URL} className="btn btn--gradient" style={{ padding: "15px 36px" }}>
+                <a href={`${APP_URL}/signup`} className="btn btn--gradient" style={{ padding: "15px 36px" }}>
                   Join Beta
                 </a>
               </div>

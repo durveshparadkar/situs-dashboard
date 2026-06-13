@@ -1,4 +1,6 @@
-export const DEMO_URL = "https://calendly.com/durvesh-situsrevenue/30min"; // replace later
+export const DEMO_URL = "https://calendly.com/durvesh-situsrevenue/30min"; 
+export const APP_URL = "https://app.situsrevenue.com";
+export const SIGNUP_URL = APP_URL + "/signup";
 
 export const FEATURES = [
   { icon: "◈", title: "Dashboard",       desc: "Unified revenue visibility across every metric that matters." },

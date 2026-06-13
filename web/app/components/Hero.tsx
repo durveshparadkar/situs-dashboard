@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
-import { DEMO_URL } from "./shared/constants";
+import { DEMO_URL, APP_URL } from "./shared/constants";
 
 /* Animated counter — counts 0 → target over 2s with ease-out */
 function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -182,7 +182,7 @@ export default function Hero() {
               Free
             </span>
           </a>
-          <a href={DEMO_URL} className="btn btn--secondary">
+          <a href={`${APP_URL}/signup`} className="btn btn--secondary">
             Join Beta →
           </a>
         </div>
