@@ -14,8 +14,8 @@ export async function apiFetch<T = unknown>(
   const isBrowser = typeof window !== "undefined";
 
   const BASE_URL = isBrowser
-    ? ""
-    : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000");
+  ? "https://api.situsrevenue.com"   // ← was ""
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000");
 
   const REQUEST_TIMEOUT_MS = Number(
     process.env.NEXT_PUBLIC_API_TIMEOUT_MS || 20000
