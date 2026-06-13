@@ -42,7 +42,7 @@ class LeadService {
 
   /* ================= BACKGROUND TASKS ================= */
 
- private triggerAsync(leadId: string): void {
+  private triggerAsync(leadId: string): void {
     void Promise.allSettled([
       leadScoreService.calculateLeadScore(leadId),
       this.queueBrain(leadId),
@@ -56,7 +56,7 @@ class LeadService {
         {
           leadId,
           type: "analyze_lead",
-          organizationId: ""
+          organizationId: "",
         },
         {
           jobId: `brain-${leadId}`,
@@ -113,7 +113,7 @@ class LeadService {
     const session = await mongoose.startSession();
 
     try {
-      let createdId: Types.ObjectId | null = null;
+      let createdDoc: any = null;
 
       await session.withTransaction(async () => {
         const orgId = this.toObjectId(user.organizationId);
@@ -153,28 +153,28 @@ class LeadService {
 
         const doc = await new Lead(payload).save({ session });
 
-        createdId = doc._id as Types.ObjectId;
+        createdDoc = doc;
 
         await logLeadActivity({
-          leadId: createdId.toString(),
+          leadId: String(doc._id),
           action: "CREATED",
           userId: user._id,
         });
       });
 
-    if (!createdId) {
-      this.throwError("Creation failed", 500);
-    }
+      if (!createdDoc) {
+        this.throwError("Creation failed", 500);
+      }
 
-    const leadId = createdId as mongoose.Types.ObjectId;
+      /* Fire-and-forget background work — never let it touch the response */
+      try {
+        this.triggerAsync(createdDoc._id.toString());
+      } catch {
+        /* ignore */
+      }
 
-    void this.triggerAsync(leadId.toString());
-
-    const lead = await Lead.findById(leadId);
-    if (lead) return lead;
-
-    await new Promise((r) => setTimeout(r, 150));
-    return Lead.findById(leadId);
+      /* Return the document we already saved — no re-fetch, no replica lag */
+      return createdDoc;
     } finally {
       session.endSession();
     }
