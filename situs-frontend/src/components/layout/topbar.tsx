@@ -6,7 +6,7 @@ import { Search, Bell, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 
-import { apiFetch } from "../../lib/api.js";
+import { apiFetch } from "@/lib/api";
 import { generateAlerts, RevenueAlert } from "../../lib/alert-engine";
 
 /* ================= PAGE TITLES ================= */
