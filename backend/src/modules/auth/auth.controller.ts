@@ -42,6 +42,7 @@ function buildCookieOptions(maxAgeMs?: number): CookieOptions {
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
     path: "/",
+    ...(isProd && { domain: ".situsrevenue.com" }),  // ← add this line
   };
   if (maxAgeMs !== undefined) {
     opts.maxAge = maxAgeMs;

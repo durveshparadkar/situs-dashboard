@@ -69,6 +69,8 @@ app.use(helmet({
 const allowedOrigins = [
     "https://situs-dashboard.vercel.app",
     "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
+    "https://app.situsrevenue.com",
+    "https://situsrevenue.com",
 ];
 app.use(cors({
     origin: allowedOrigins,
