@@ -42,8 +42,8 @@ class LeadService {
 
   /* ================= BACKGROUND TASKS ================= */
 
-  private async triggerAsync(leadId: string) {
-    Promise.allSettled([
+ private triggerAsync(leadId: string): void {
+    void Promise.allSettled([
       leadScoreService.calculateLeadScore(leadId),
       this.queueBrain(leadId),
     ]);
@@ -162,16 +162,19 @@ class LeadService {
         });
       });
 
-     if (!createdId) {
-  this.throwError("Creation failed", 500);
-}
+    if (!createdId) {
+      this.throwError("Creation failed", 500);
+    }
 
-// 🔥 TYPE SAFE CAST (guaranteed after check)
-const leadId = createdId as mongoose.Types.ObjectId;
+    const leadId = createdId as mongoose.Types.ObjectId;
 
-this.triggerAsync(leadId.toString());
+    void this.triggerAsync(leadId.toString());
 
-return Lead.findById(leadId);
+    const lead = await Lead.findById(leadId);
+    if (lead) return lead;
+
+    await new Promise((r) => setTimeout(r, 150));
+    return Lead.findById(leadId);
     } finally {
       session.endSession();
     }
