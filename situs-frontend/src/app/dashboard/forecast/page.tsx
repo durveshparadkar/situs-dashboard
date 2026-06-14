@@ -9,69 +9,68 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
 
-/* ================= TYPES ================= */
+/* ================= TYPES (match backend forecast.service.ts) ================= */
 
-type ApiDeal = {
-  _id: string;
-  title: string;
-  value: number;
-  probability?: number;
-  owner?: string;
+type ForecastSummary = {
+  totalPipelineValue: number;
+  weightedForecast: number;
+  commitForecast: number;
+  bestCaseForecast: number;
+  closedWonValue: number;
+  closedLostValue: number;
+  averageDealSize: number;
 };
 
-type ForecastDeal = {
-  id: string;
-  name: string;
-  owner: string;
-  value: number;
-  baseProbability: number;
-  aiProbability: number;
-  weighted: number;
-  score: number;
-  explanation: string[];
-  risk: "Low" | "Medium" | "High";
+type ForecastMetrics = {
+  totalDeals: number;
+  openDeals: number;
+  closedWon: number;
+  closedLost: number;
+  commitDeals: number;
+  bestCaseDeals: number;
+  conversionRate: number;
+  winRate: number;
+  pipelineHealth: number;
+  averageProbability: number;
+  overdueDeals: number;
+  stalledDeals: number;
 };
 
-/* Backend deal shape (subset we read from /api/deals) */
-type BackendDeal = {
-  _id: string;
-  title: string;
-  value: number;
-  probability?: number;
-  assignedTo?: string;
-  ownerId?: string;
-  owner?: string;
+type ForecastInsight = {
+  level: "info" | "warning" | "critical" | "positive";
+  category: string;
+  message: string;
+  reasoning?: string[];
+  metric?: number;
+};
+
+type ForecastResult = {
+  summary: ForecastSummary;
+  metrics: ForecastMetrics;
+  insights: ForecastInsight[];
+};
+
+/* Breakdown item (for the chart) */
+type BreakdownItem = {
+  key: string;
+  label: string;
+  totalValue: number;
+  weightedValue: number;
+  commitValue: number;
+  bestCaseValue: number;
+  dealCount: number;
 };
 
 /* ================= HELPERS ================= */
 
-const formatMoney = (v: number) => `₹${v.toLocaleString()}`;
+const formatMoney = (v: number) => `₹${(v ?? 0).toLocaleString("en-IN")}`;
 
-const getRisk = (p: number): ForecastDeal["risk"] =>
-  p >= 75 ? "Low" : p >= 45 ? "Medium" : "High";
-
-/* ================= AI ================= */
-
-function calculateAI(base: number, value: number, max: number) {
-  const weight = max ? value / max : 0;
-
-  const aiProb = Math.min(
-    95,
-    Math.max(5, Math.round(base * 0.6 + weight * 100 * 0.4))
-  );
-
-  const explanation: string[] = [];
-
-  if (weight > 0.7) explanation.push("High value deal boosts forecast");
-  if (weight < 0.3) explanation.push("Low value reduces impact");
-  if (aiProb > base) explanation.push("AI increased probability");
-  if (aiProb < base) explanation.push("AI reduced probability");
-
-  return { aiProb, explanation };
-}
-
-const score = (p: number, v: number, max: number) =>
-  Math.round(p * 0.7 + (max ? (v / max) * 100 : 0) * 0.3);
+const insightColor = (level: ForecastInsight["level"]) => {
+  if (level === "critical") return "text-red-600";
+  if (level === "warning") return "text-amber-600";
+  if (level === "positive") return "text-emerald-600";
+  return "text-slate-600";
+};
 
 /* ================= GLOBAL UI ================= */
 
@@ -79,13 +78,7 @@ const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
 );
 
-const PageHeader = ({
-  onBack,
-  title,
-}: {
-  onBack: () => void;
-  title?: string;
-}) => (
+const PageHeader = ({ onBack }: { onBack: () => void }) => (
   <div className="flex justify-between items-center">
     <button
       onClick={onBack}
@@ -94,8 +87,6 @@ const PageHeader = ({
       <ArrowLeft size={16} />
       Back
     </button>
-
-    {title && <h1 className="text-lg font-semibold">{title}</h1>}
   </div>
 );
 
@@ -121,196 +112,198 @@ const Card = ({
 export default function ForecastPage() {
   const router = useRouter();
 
-  const [deals, setRawDeals] = useState<ApiDeal[]>([]);
+  const [forecast, setForecast] = useState<ForecastResult | null>(null);
+  const [breakdown, setBreakdown] = useState<BreakdownItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<ForecastDeal | null>(null);
+  const [selected, setSelected] = useState<ForecastInsight | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        /* Forecast math runs client-side off the deal list.
-           Source the deals from the migrated backend deals API. */
-        const res = await apiFetch<{ success: boolean; data: BackendDeal[] }>(
-          "/api/deals?limit=100"
+        /* Main forecast — real backend engine (weighted pipeline, commit
+           buckets, win rate, hygiene signals, structured insights). */
+        const res = await apiFetch<{ success: boolean; data: ForecastResult }>(
+          "/api/forecast?range=month"
         );
 
-        const raw = Array.isArray(res?.data) ? res.data : [];
-
-        /* Normalize backend deal → the ApiDeal shape this page expects */
-        const normalized: ApiDeal[] = raw.map((d) => ({
-          _id:         d._id,
-          title:       d.title,
-          value:       d.value,
-          probability: d.probability,
-          owner:       d.owner || d.assignedTo || d.ownerId || "User",
-        }));
-
-        setRawDeals(normalized);
+        if (res?.success && res?.data) {
+          setForecast(res.data);
+        }
       } catch (err) {
-        console.error("Failed to load forecast deals", err);
-        setRawDeals([]);
-      } finally {
-        setLoading(false);
+        console.error("Failed to load forecast", err);
       }
+
+      try {
+        /* Breakdown by stage — drives the chart. */
+        const res = await apiFetch<{ success: boolean; data: BreakdownItem[] }>(
+          "/api/forecast/breakdown?groupBy=stage"
+        );
+        if (res?.success && Array.isArray(res.data)) {
+          setBreakdown(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load breakdown", err);
+      }
+
+      setLoading(false);
     };
 
     load();
   }, []);
 
-  const forecastDeals: ForecastDeal[] = useMemo(() => {
-    if (!deals.length) return [];
+  const summary = forecast?.summary;
+  const metrics = forecast?.metrics;
+  const insights = useMemo(() => forecast?.insights ?? [], [forecast]);
 
-    const max = Math.max(...deals.map((d) => d.value || 0), 1);
-
-    return deals
-      .map((d) => {
-        const base = d.probability ?? 50;
-
-        const { aiProb, explanation } = calculateAI(base, d.value, max);
-
-        return {
-          id: d._id,
-          name: d.title || "Untitled",
-          owner: d.owner || "User",
-          value: d.value || 0,
-          baseProbability: base,
-          aiProbability: aiProb,
-          weighted: Math.round((d.value * aiProb) / 100),
-          score: score(aiProb, d.value, max),
-          explanation,
-          risk: getRisk(aiProb),
-        };
-      })
-      .sort((a, b) => b.score - a.score);
-  }, [deals]);
-
-  const expected = forecastDeals.reduce((s, d) => s + d.weighted, 0);
-  const pipeline = forecastDeals.reduce((s, d) => s + d.value, 0);
-  const confidence = forecastDeals.length
-    ? Math.round(
-        forecastDeals.reduce((s, d) => s + d.aiProbability, 0) /
-          forecastDeals.length
-      )
-    : 0;
-
-  const riskDeals = forecastDeals.filter((d) => d.risk === "High").length;
-
-  const chartData = forecastDeals.slice(0, 5).map((d) => ({
-    name: d.name,
-    value: d.weighted,
-  }));
-
-  const insights = [
-    `${riskDeals} high-risk deals`,
-    `Confidence ${confidence}%`,
-    forecastDeals[0] ? `${forecastDeals[0].name} drives revenue` : "",
-  ];
+  /* Chart: weighted value per stage (top 5 by weighted value) */
+  const chartData = useMemo(
+    () =>
+      [...breakdown]
+        .sort((a, b) => b.weightedValue - a.weightedValue)
+        .slice(0, 5)
+        .map((b) => ({ name: b.label || b.key, value: b.weightedValue })),
+    [breakdown]
+  );
 
   if (loading) return <div className="p-6">Loading...</div>;
+
+  if (!forecast || !summary || !metrics) {
+    return (
+      <PageContainer>
+        <PageHeader onBack={() => router.push("/dashboard")} />
+        <Card>
+          <p className="text-sm text-slate-500">
+            No forecast data yet. Create deals and move them through your
+            pipeline to see your forecast.
+          </p>
+        </Card>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer>
 
       <PageHeader onBack={() => router.push("/dashboard")} />
 
-      {/* HERO */}
+      {/* HERO — real weighted forecast */}
       <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
-        <h1 className="text-4xl font-bold">{formatMoney(expected)}</h1>
+        <h1 className="text-4xl font-bold">
+          {formatMoney(summary.weightedForecast)}
+        </h1>
 
         <p className="text-white/70 mt-2">
-          AI Forecast • Confidence {confidence}%
+          Weighted Forecast • Win rate {metrics.winRate}%
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
           <div>
             <p className="text-white/60">Pipeline</p>
-            <p>{formatMoney(pipeline)}</p>
+            <p>{formatMoney(summary.totalPipelineValue)}</p>
           </div>
           <div>
-            <p className="text-white/60">Deals</p>
-            <p>{forecastDeals.length}</p>
+            <p className="text-white/60">Commit</p>
+            <p>{formatMoney(summary.commitForecast)}</p>
           </div>
           <div>
-            <p className="text-white/60">High Risk</p>
-            <p className="text-red-400">{riskDeals}</p>
+            <p className="text-white/60">Best Case</p>
+            <p>{formatMoney(summary.bestCaseForecast)}</p>
           </div>
           <div>
-            <p className="text-white/60">Confidence</p>
-            <p>{confidence}%</p>
+            <p className="text-white/60">Open Deals</p>
+            <p>{metrics.openDeals}</p>
           </div>
         </div>
       </Card>
 
-      {/* AI INSIGHTS */}
-      <Card>
-        <h3 className="font-semibold mb-2">AI Insights</h3>
-        <div className="text-sm text-slate-600 space-y-1">
-          {insights.map((i, idx) => i && <p key={idx}>• {i}</p>)}
-        </div>
-      </Card>
+      {/* KEY METRICS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <Card>
+          <p className="text-xs text-slate-500">Pipeline Health</p>
+          <p className="mt-1 text-lg font-semibold">
+            {Math.round(metrics.pipelineHealth * 100)}%
+          </p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Conversion</p>
+          <p className="mt-1 text-lg font-semibold">{metrics.conversionRate}%</p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Overdue</p>
+          <p className="mt-1 text-lg font-semibold text-red-500">
+            {metrics.overdueDeals}
+          </p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Stalled</p>
+          <p className="mt-1 text-lg font-semibold text-amber-500">
+            {metrics.stalledDeals}
+          </p>
+        </Card>
+      </div>
 
       {/* CHART + RISK */}
       <div className="grid xl:grid-cols-2 gap-6">
         <Card>
+          <h3 className="text-sm font-semibold mb-4">Weighted Forecast by Stage</h3>
           <RevenueChart data={chartData} />
         </Card>
 
         <Card>
-          <RiskInsight deals={forecastDeals} />
+          <RiskInsight deals={[]} />
         </Card>
       </div>
 
-      {/* DEAL LIST */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {forecastDeals.map((d) => (
-          <Card key={d.id}>
-            <div className="flex justify-between">
-              <div>
-                <p className="font-semibold">{d.name}</p>
-                <p className="text-xs text-slate-500">{d.owner}</p>
+      {/* INSIGHTS — real structured insights from the engine */}
+      <Card>
+        <h3 className="font-semibold mb-3">Forecast Insights</h3>
+        <div className="space-y-3">
+          {insights.map((ins, idx) => (
+            <div
+              key={idx}
+              onClick={() => ins.reasoning && setSelected(ins)}
+              className={`p-3 rounded-lg border ${
+                ins.reasoning ? "cursor-pointer hover:bg-slate-50" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className={`text-sm font-medium ${insightColor(ins.level)}`}>
+                  {ins.message}
+                </p>
+                {ins.reasoning && <ArrowRight size={14} className="text-slate-400" />}
               </div>
-
-              <button onClick={() => setSelected(d)}>
-                <ArrowRight size={16} />
-              </button>
+              <p className="text-[11px] text-slate-400 uppercase mt-1">
+                {ins.category} • {ins.level}
+              </p>
             </div>
+          ))}
+        </div>
+      </Card>
 
-            <p className="mt-3 font-semibold">{formatMoney(d.value)}</p>
-
-            <div className="mt-2 h-2 bg-slate-100 rounded-full">
-              <div
-                className="h-full bg-black rounded-full"
-                style={{ width: `${d.aiProbability}%` }}
-              />
-            </div>
-
-            <p className="text-xs mt-1 text-slate-500">
-              AI {d.aiProbability}% • Score {d.score}
-            </p>
-          </Card>
-        ))}
-      </div>
-
-      {/* MODAL */}
+      {/* INSIGHT REASONING MODAL */}
       <AnimatePresence>
         {selected && (
           <motion.div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
             onClick={() => setSelected(null)}
           >
             <motion.div
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
               className="bg-white p-6 rounded-xl w-96"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="font-semibold text-lg">{selected.name}</h2>
-
-              <p className="mt-2">{formatMoney(selected.value)}</p>
+              <h2 className={`font-semibold text-lg ${insightColor(selected.level)}`}>
+                {selected.message}
+              </h2>
 
               <div className="mt-3 text-sm text-slate-600 space-y-1">
-                {selected.explanation.map((e, i) => (
-                  <p key={i}>• {e}</p>
+                {(selected.reasoning ?? []).map((r, i) => (
+                  <p key={i}>• {r}</p>
                 ))}
               </div>
             </motion.div>
