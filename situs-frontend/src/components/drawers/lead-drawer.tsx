@@ -48,7 +48,7 @@ function money(value: number) {
 }
 
 export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
-  const isEdit = Boolean(lead?._id);
+  const isEdit = Boolean(lead?._id && lead._id.trim().length > 0);
 
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
@@ -98,16 +98,17 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
         source,
       };
 
-      const result =
-        isEdit && lead?._id
-          ? await apiFetch<LeadResponse>(`/api/leads/${lead._id}`, {
-              method: "PATCH",
-              body: JSON.stringify(payload),
-            })
-          : await apiFetch<LeadResponse>("/api/leads", {
-              method: "POST",
-              body: JSON.stringify(payload),
-            });
+      const isRealEdit = Boolean(lead?._id && lead._id.trim().length > 0);
+
+      const result = isRealEdit
+        ? await apiFetch<LeadResponse>(`/api/leads/${lead!._id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          })
+        : await apiFetch<LeadResponse>("/api/leads", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
 
       if (!result?.data) {
         toast.error("Save failed");
