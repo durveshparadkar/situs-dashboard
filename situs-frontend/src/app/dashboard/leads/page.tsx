@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, ArrowRight } from "lucide-react";
+import { ArrowLeft, Plus, ArrowRight, Upload } from "lucide-react";
 import toast from "react-hot-toast";
 
 import MetricCard from "../../../components/dashboard/metric-card";
 import LeadDrawer from "../../../components/drawers/lead-drawer";
 import { apiFetch } from "@/lib/api";
 import { createDeal } from "../../../lib/intelligence/deals.api";
+import {
+  buildLeadImportTemplate,
+  parseLeadsCsv,
+  bulkCreateLeads,
+} from "../../../lib/intelligence/leads.api";
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
@@ -117,6 +122,15 @@ export default function LeadsPage() {
   const [convertTarget, setConvertTarget] = useState<ConvertTarget | null>(null);
   const [converting, setConverting] = useState(false);
 
+  /* CSV import modal state */
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    failed: number;
+    skipped: Array<{ row: number; reason: string }>;
+  } | null>(null);
+
   const fetchLeads = useCallback(async () => {
     try {
       setLoading(true);
@@ -199,6 +213,59 @@ export default function LeadsPage() {
     }
   };
 
+  /* ================= IMPORT HANDLERS ================= */
+
+  const handleDownloadTemplate = () => {
+    const csv = buildLeadImportTemplate();
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "situs-leads-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      setImporting(true);
+      setImportResult(null);
+
+      const text = await file.text();
+      const { valid, skipped } = parseLeadsCsv(text);
+
+      if (valid.length === 0) {
+        toast.error("No valid rows found in file");
+        setImportResult({ created: 0, failed: 0, skipped });
+        return;
+      }
+
+      const result = await bulkCreateLeads(valid);
+
+      setImportResult({
+        created: result.created,
+        failed: result.failed,
+        skipped,
+      });
+
+      toast.success(` ${result.created} leads imported`);
+
+      /* Refresh so newly imported leads appear */
+      await fetchLeads();
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const closeImport = () => {
+    if (importing) return;
+    setShowImport(false);
+    setImportResult(null);
+  };
+
   /* ================= DERIVED ================= */
 
   const processedLeads = useMemo(() => {
@@ -256,24 +323,34 @@ export default function LeadsPage() {
             </p>
           </div>
 
-          <button
-            onClick={() =>
-              setSelectedLead(
-                normalizeLead({
-                  _id: "",
-                  name: "",
-                  phone: "",
-                  interestedLocation: "",
-                  budget: 0,
-                  source: "MANUAL_ENTRY",
-                })
-              )
-            }
-            className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm"
-          >
-            <Plus size={16} />
-            Add Lead
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center justify-center gap-2 border border-slate-300 px-4 py-2 rounded-lg text-sm"
+            >
+              <Upload size={16} />
+              Import
+            </button>
+
+            <button
+              onClick={() =>
+                setSelectedLead(
+                  normalizeLead({
+                    _id: "",
+                    name: "",
+                    phone: "",
+                    interestedLocation: "",
+                    budget: 0,
+                    source: "MANUAL_ENTRY",
+                  })
+                )
+              }
+              className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm"
+            >
+              <Plus size={16} />
+              Add Lead
+            </button>
+          </div>
         </div>
 
         <Card className="bg-slate-950 text-white border-none">
@@ -459,6 +536,114 @@ export default function LeadsPage() {
                 {converting ? "Converting..." : "Create Deal"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= IMPORT MODAL ================= */}
+      {showImport && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={closeImport}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h2 className="text-lg font-semibold">Import leads</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Bulk-add leads from a CSV file.
+              </p>
+            </div>
+
+            {!importResult ? (
+              <>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold text-slate-900">1.</span>
+                    <div>
+                      <p>Download the template</p>
+                      <button
+                        onClick={handleDownloadTemplate}
+                        className="mt-1 text-emerald-600 underline"
+                      >
+                        Download situs-leads-template.csv
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold text-slate-900">2.</span>
+                    <p>
+                      Fill it in: name, phone, email, budget,
+                      interestedLocation, source
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold text-slate-900">3.</span>
+                    <p>Upload the file below</p>
+                  </div>
+                </div>
+
+                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400">
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImportFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <span className="text-sm text-slate-500">
+                    {importing ? "Importing..." : "Click to choose a CSV file"}
+                  </span>
+                </label>
+
+                <button
+                  onClick={closeImport}
+                  disabled={importing}
+                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">
+                  {importResult.created} leads imported
+                  {importResult.failed > 0 &&
+                    ` (${importResult.failed} failed on server)`}
+                </div>
+
+                {importResult.skipped.length > 0 && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+                    {importResult.skipped.length} rows skipped
+                    <ul className="mt-2 space-y-1 text-xs">
+                      {importResult.skipped.slice(0, 10).map((s) => (
+                        <li key={s.row}>
+                          Row {s.row}: {s.reason}
+                        </li>
+                      ))}
+                      {importResult.skipped.length > 10 && (
+                        <li>...and {importResult.skipped.length - 10} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+
+                <button
+                  onClick={closeImport}
+                  className="w-full bg-black text-white py-2 rounded-lg text-sm"
+                >
+                  Done
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
