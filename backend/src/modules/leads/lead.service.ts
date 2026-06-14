@@ -154,21 +154,29 @@ class LeadService {
         const doc = await new Lead(payload).save({ session });
 
         createdDoc = doc;
-
-        await logLeadActivity({
-          leadId: String(doc._id),
-          action: "CREATED",
-          userId: user._id,
-        });
+        /* NOTE: activity logging moved OUT of the transaction below.
+           Logging inside the transaction queried the lead before commit,
+           threw "Lead not found", and rolled back the whole create. */
       });
 
       if (!createdDoc) {
         this.throwError("Creation failed", 500);
       }
 
+      /* Log activity AFTER commit — never let it fail the request */
+      try {
+        await logLeadActivity({
+          leadId: String(createdDoc._id),
+          action: "CREATED",
+          userId: user._id,
+        });
+      } catch (e) {
+        console.warn("logLeadActivity skipped:", e);
+      }
+
       /* Fire-and-forget background work — never let it touch the response */
       try {
-        this.triggerAsync(createdDoc._id.toString());
+        this.triggerAsync(String(createdDoc._id));
       } catch {
         /* ignore */
       }
@@ -248,11 +256,15 @@ class LeadService {
 
     if (!updated) this.throwError("Update failed", 500);
 
-    await logLeadActivity({
-      leadId: id,
-      action: "UPDATED",
-      userId: user._id,
-    });
+    try {
+      await logLeadActivity({
+        leadId: id,
+        action: "UPDATED",
+        userId: user._id,
+      });
+    } catch (e) {
+      console.warn("logLeadActivity skipped:", e);
+    }
 
     this.triggerAsync(id);
 
@@ -279,11 +291,15 @@ class LeadService {
 
     await lead.save();
 
-    await logLeadActivity({
-      leadId: id,
-      action: "STAGE_CHANGED",
-      userId: user._id,
-    });
+    try {
+      await logLeadActivity({
+        leadId: id,
+        action: "STAGE_CHANGED",
+        userId: user._id,
+      });
+    } catch (e) {
+      console.warn("logLeadActivity skipped:", e);
+    }
 
     this.triggerAsync(id);
 
