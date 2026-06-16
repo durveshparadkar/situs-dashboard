@@ -301,11 +301,15 @@ class DealController {
         }
 
         /* Value — required, numeric (strip commas/spaces) */
-        const rawValue = row.value;
+          const rawValue = row.value;
         const value =
           typeof rawValue === "number"
             ? rawValue
-            : Number(String(rawValue ?? "").replace(/[,\s]/g, ""));
+            : Number(
+                String(rawValue ?? "")
+                  .replace(/[₹$€£,\s]/g, "")
+                  .replace(/rs\.?/gi, "")
+              );
         if (!Number.isFinite(value) || value < 0) {
           skipped.push({ row: rowNum, reason: "Invalid value" });
           continue;
