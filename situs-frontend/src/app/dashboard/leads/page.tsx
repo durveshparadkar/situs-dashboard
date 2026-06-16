@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { createDeal } from "../../../lib/intelligence/deals.api";
 import {
   buildLeadImportTemplate,
-  parseLeadsCsv,
+  parseLeadsFile,
   bulkCreateLeads,
 } from "../../../lib/intelligence/leads.api";
 
@@ -122,7 +122,7 @@ export default function LeadsPage() {
   const [convertTarget, setConvertTarget] = useState<ConvertTarget | null>(null);
   const [converting, setConverting] = useState(false);
 
-  /* CSV import modal state */
+  /* Import modal state */
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{
@@ -231,8 +231,8 @@ export default function LeadsPage() {
       setImporting(true);
       setImportResult(null);
 
-      const text = await file.text();
-      const { valid, skipped } = parseLeadsCsv(text);
+      /* Smart parser reads CSV and Excel, with fuzzy header matching. */
+      const { valid, skipped } = await parseLeadsFile(file);
 
       if (valid.length === 0) {
         toast.error("No valid rows found in file");
@@ -248,7 +248,7 @@ export default function LeadsPage() {
         skipped,
       });
 
-      toast.success(` ${result.created} leads imported`);
+      toast.success(`${result.created} leads imported`);
 
       /* Refresh so newly imported leads appear */
       await fetchLeads();
@@ -553,7 +553,7 @@ export default function LeadsPage() {
             <div>
               <h2 className="text-lg font-semibold">Import leads</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Bulk-add leads from a CSV file.
+                Bulk-add leads from a CSV or Excel file.
               </p>
             </div>
 
@@ -583,14 +583,14 @@ export default function LeadsPage() {
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
-                    <p>Upload the file below</p>
+                    <p>Upload the file below (CSV or Excel)</p>
                   </div>
                 </div>
 
                 <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400">
                   <input
                     type="file"
-                    accept=".csv,text/csv"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                     className="hidden"
                     disabled={importing}
                     onChange={(e) => {
@@ -600,7 +600,7 @@ export default function LeadsPage() {
                     }}
                   />
                   <span className="text-sm text-slate-500">
-                    {importing ? "Importing..." : "Click to choose a CSV file"}
+                    {importing ? "Importing..." : "Click to choose a CSV or Excel file"}
                   </span>
                 </label>
 

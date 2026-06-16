@@ -19,7 +19,7 @@ import DealDrawer from "../../../components/drawers/deal-drawer";
 import {
   listDeals,
   importDeals,
-  parseDealsCsv,
+  parseDealsFile,
   buildImportTemplate,
   type BackendDeal,
   type ImportResult,
@@ -169,8 +169,8 @@ export default function DealsPage() {
       setImporting(true);
       setImportResult(null);
 
-      const text = await file.text();
-      const rows = parseDealsCsv(text);
+      /* Smart parser reads CSV and Excel, with fuzzy header matching. */
+      const rows = await parseDealsFile(file);
 
       if (rows.length === 0) {
         toast.error("No rows found in file");
@@ -372,7 +372,7 @@ export default function DealsPage() {
                         {deal.riskScore}
                       </td>
 
-                      <td className={`flex items-center gap-1 ${momentum.color}`}>
+                      <td className={ `flex items-center gap-1 ${momentum.color}` }>
                         <Icon size={14} />
                         {momentum.label}
                       </td>
@@ -425,7 +425,7 @@ export default function DealsPage() {
                     rows above the CSV option, e.g.:
                       [ Connect HubSpot ]
                       [ Connect Salesforce ]
-                    For now, CSV upload is the only working source.
+                    For now, CSV/Excel upload is the only working source.
                 ============================================ */}
 
                 <div className="space-y-3 text-sm">
@@ -449,14 +449,14 @@ export default function DealsPage() {
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
-                    <p>Upload the file below</p>
+                    <p>Upload the file below (CSV or Excel)</p>
                   </div>
                 </div>
 
                 <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400">
                   <input
                     type="file"
-                    accept=".csv,text/csv"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                     className="hidden"
                     disabled={importing}
                     onChange={(e) => {
@@ -466,7 +466,7 @@ export default function DealsPage() {
                     }}
                   />
                   <span className="text-sm text-slate-500">
-                    {importing ? "Importing..." : "Click to choose a CSV file"}
+                    {importing ? "Importing..." : "Click to choose a CSV or Excel file"}
                   </span>
                 </label>
 

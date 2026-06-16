@@ -7,7 +7,15 @@
 //   backend/src/modules/deals/deal.routes.ts
 //
 // Auth: cookie-based session via apiFetch (credentials: "include")
+//
+// SMART IMPORT (upgraded):
+//  - Reads CSV and Excel (.xlsx/.xls) via SheetJS
+//  - Fuzzy header matching (tolerates typos, variants like "deal name",
+//    "amount", "win %")
+//  - Positional fallback: if a header can't be matched by name, uses
+//    column order (1st=title, 2nd=value, 3rd=probability)
 
+import * as XLSX from "xlsx";
 import { apiFetch } from "../../lib/api";
 
 // ============================================================
@@ -242,7 +250,87 @@ export async function deleteDeal(dealId: string): Promise<void> {
 }
 
 // ============================================================
-// IMPORT — bulk create from CSV
+// SMART HEADER MATCHING
+// ============================================================
+// Map human header variations to canonical fields. Matching ignores
+// case, spaces, underscores, dashes, dots — so "Deal Name", "amount",
+// "win %", or a typo still map correctly.
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  title: [
+    "title", "deal", "dealname", "name", "dealtitle", "opportunity",
+    "account", "company", "client", "project",
+  ],
+  value: [
+    "value", "amount", "dealvalue", "price", "revenue", "worth",
+    "size", "dealsize", "budget",
+  ],
+  probability: [
+    "probability", "prob", "win", "winprobability", "winpercent",
+    "winrate", "likelihood", "confidence", "percent", "chance",
+  ],
+};
+
+/** Strip everything but letters/numbers, lowercase. "Deal Name " -> "dealname" */
+function canon(s: string): string {
+  return String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Build alias lookup once: canon(alias) -> canonical field */
+const ALIAS_LOOKUP: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const field of Object.keys(FIELD_ALIASES)) {
+    for (const alias of FIELD_ALIASES[field]) {
+      map[canon(alias)] = field;
+    }
+  }
+  return map;
+})();
+
+/** Canonical field order — used for positional fallback. */
+const FIELD_ORDER = ["title", "value", "probability"] as const;
+
+/**
+ * Decide which column index maps to each field.
+ *  1) Match header cells to canonical fields via aliases
+ *  2) For unmapped fields, fall back to column order
+ */
+function resolveColumns(headerRow: string[]): Record<string, number> {
+  const mapping: Record<string, number> = {};
+  const claimed = new Set<number>();
+
+  // Pass 1: alias matching
+  headerRow.forEach((cell, i) => {
+    const field = ALIAS_LOOKUP[canon(cell)];
+    if (field && mapping[field] === undefined) {
+      mapping[field] = i;
+      claimed.add(i);
+    }
+  });
+
+  // Pass 2: positional fallback
+  let nextCol = 0;
+  for (const field of FIELD_ORDER) {
+    if (mapping[field] !== undefined) continue;
+    while (claimed.has(nextCol)) nextCol++;
+    if (nextCol < headerRow.length) {
+      mapping[field] = nextCol;
+      claimed.add(nextCol);
+    }
+    nextCol++;
+  }
+
+  return mapping;
+}
+
+/** Does row 0 look like a header (labels) rather than data? */
+function looksLikeHeader(row: string[]): boolean {
+  if (row.length === 0) return false;
+  return row.some((c) => ALIAS_LOOKUP[canon(c)] !== undefined);
+}
+
+// ============================================================
+// IMPORT — bulk create from CSV / Excel
 // ============================================================
 
 /** The exact column headers the import template uses. */
@@ -291,10 +379,30 @@ function splitCsvLine(line: string): string[] {
   return result;
 }
 
+/** Turn a row of cells into an ImportRow using the resolved columns. */
+function rowToImportRow(
+  cells: string[],
+  cols: Record<string, number>
+): ImportRow {
+  const get = (field: string) => {
+    const idx = cols[field];
+    return idx !== undefined && idx >= 0 ? (cells[idx] ?? "").trim() : "";
+  };
+  return {
+    title: get("title"),
+    value: get("value"),
+    probability: get("probability"),
+  };
+}
+
+/** Is this row completely empty (all cells blank)? */
+function isBlankRow(cells: string[]): boolean {
+  return cells.every((c) => !c || !c.trim());
+}
+
 /**
- * Parse a CSV string into row objects keyed by the template headers.
- * Reads the header row to find which column is title/value/probability,
- * so column order in the user's file doesn't have to be exact.
+ * Parse a CSV string into ImportRows. Smart header matching + positional
+ * fallback; skips fully-blank rows so they don't become empty-title rows.
  */
 export function parseDealsCsv(csv: string): ImportRow[] {
   const lines = csv
@@ -304,24 +412,72 @@ export function parseDealsCsv(csv: string): ImportRow[] {
 
   if (lines.length === 0) return [];
 
-  const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const allRows = lines.map((l) => splitCsvLine(l).map((c) => c.trim()));
 
-  const titleIdx = headers.indexOf("title");
-  const valueIdx = headers.indexOf("value");
-  const probIdx  = headers.indexOf("probability");
+  const hasHeader = looksLikeHeader(allRows[0]);
+  const headerRow = hasHeader ? allRows[0] : allRows[0].map(() => "");
+  const cols = resolveColumns(headerRow);
+  const dataStart = hasHeader ? 1 : 0;
 
   const rows: ImportRow[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = splitCsvLine(lines[i]);
-    const row: ImportRow = {};
-    if (titleIdx >= 0) row.title = (cols[titleIdx] ?? "").trim();
-    if (valueIdx >= 0) row.value = (cols[valueIdx] ?? "").trim();
-    if (probIdx  >= 0) row.probability = (cols[probIdx] ?? "").trim();
-    rows.push(row);
+  for (let i = dataStart; i < allRows.length; i++) {
+    if (isBlankRow(allRows[i])) continue;
+    rows.push(rowToImportRow(allRows[i], cols));
   }
 
   return rows;
+}
+
+// ============================================================
+// SMART FILE PARSING — CSV or Excel (.xlsx/.xls)
+// ============================================================
+
+/** Read any supported file into a 2D array of trimmed string cells. */
+async function readFileToRows(file: File): Promise<string[][]> {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const firstSheetName = wb.SheetNames[0];
+  if (!firstSheetName) return [];
+
+  const sheet = wb.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+    raw: false,
+  });
+
+  return rows.map((r) =>
+    (Array.isArray(r) ? r : []).map((c) => String(c ?? "").trim())
+  );
+}
+
+/**
+ * Parse a CSV or Excel FILE into ImportRows.
+ * Smart entry point the UI should call for file uploads.
+ */
+export async function parseDealsFile(file: File): Promise<ImportRow[]> {
+  let rows: string[][];
+  try {
+    rows = await readFileToRows(file);
+  } catch {
+    return [];
+  }
+
+  if (rows.length === 0) return [];
+
+  const hasHeader = looksLikeHeader(rows[0]);
+  const headerRow = hasHeader ? rows[0] : rows[0].map(() => "");
+  const cols = resolveColumns(headerRow);
+  const dataStart = hasHeader ? 1 : 0;
+
+  const out: ImportRow[] = [];
+  for (let i = dataStart; i < rows.length; i++) {
+    if (isBlankRow(rows[i])) continue;
+    out.push(rowToImportRow(rows[i], cols));
+  }
+
+  return out;
 }
 
 /**
