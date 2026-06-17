@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Plus,
   Upload,
+  Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -21,6 +22,7 @@ import {
   importDeals,
   parseDealsFile,
   buildImportTemplate,
+  deleteDeal,
   type BackendDeal,
   type ImportResult,
 } from "../../../lib/intelligence/deals.api";
@@ -122,6 +124,10 @@ export default function DealsPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
+  /* Delete confirmation state */
+  const [deleteTarget, setDeleteTarget] = useState<RankedDeal | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   /* ================= FETCH ================= */
 
   const fetchDeals = useCallback(async () => {
@@ -194,6 +200,32 @@ export default function DealsPage() {
     if (importing) return;
     setShowImport(false);
     setImportResult(null);
+  };
+
+  /* ================= DELETE HANDLERS ================= */
+
+  const closeDelete = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await deleteDeal(deleteTarget._id);
+
+      /* Remove from local state immediately */
+      setDeals((current) => current.filter((d) => d._id !== deleteTarget._id));
+
+      toast.success("Deal deleted");
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to delete deal");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   /* ================= TRANSFORM =================
@@ -330,57 +362,83 @@ export default function DealsPage() {
               No deals found
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="text-left text-slate-500 bg-slate-50">
-                <tr>
-                  <th className="p-4">Deal</th>
-                  <th>Value</th>
-                  <th>Probability</th>
-                  <th>Risk</th>
-                  <th>Momentum</th>
-                </tr>
-              </thead>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead className="text-left text-slate-500 bg-slate-50">
+                  <tr>
+                    <th className="py-3 px-4 font-medium">Deal</th>
+                    <th className="py-3 px-4 font-medium">Value</th>
+                    <th className="py-3 px-4 font-medium">Probability</th>
+                    <th className="py-3 px-4 font-medium">Risk</th>
+                    <th className="py-3 px-4 font-medium">Momentum</th>
+                    <th className="py-3 px-4 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                {finalDeals.map((deal) => {
-                  const momentum = getMomentum(deal.lastActivityDays);
-                  const Icon = momentum.icon;
+                <tbody>
+                  {finalDeals.map((deal) => {
+                    const momentum = getMomentum(deal.lastActivityDays);
+                    const Icon = momentum.icon;
 
-                  return (
-                    <tr
-                      key={deal._id}
-                      className="border-t hover:bg-slate-50 cursor-pointer"
-                      onClick={() => setSelectedDeal(deal)}
-                    >
-                      <td className="p-4 font-medium">{deal.name}</td>
+                    return (
+                      <tr
+                        key={deal._id}
+                        className="border-t hover:bg-slate-50 cursor-pointer align-middle"
+                        onClick={() => setSelectedDeal(deal)}
+                      >
+                        {/* Deal */}
+                        <td className="py-3.5 px-4 font-medium">{deal.name}</td>
 
-                      <td>₹{deal.value.toLocaleString()}</td>
+                        {/* Value */}
+                        <td className="py-3.5 px-4 tabular-nums">
+                          ₹{deal.value.toLocaleString()}
+                        </td>
 
-                      <td>
-                        <div className="flex items-center gap-2">
-                          {deal.probability}%
-                          <div className="w-20 h-1 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-black"
-                              style={{ width: `${deal.probability}%` }}
-                            />
+                        {/* Probability */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums w-9">{deal.probability}%</span>
+                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-black"
+                                style={{ width: `${deal.probability}%` }}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className={getRiskColor(deal.riskScore)}>
-                        {deal.riskScore}
-                      </td>
+                        {/* Risk */}
+                        <td className={`py-3.5 px-4 font-medium tabular-nums ${getRiskColor(deal.riskScore)}`}>
+                          {deal.riskScore}
+                        </td>
 
-                      <td className={ `flex items-center gap-1 ${momentum.color}` }>
-                        <Icon size={14} />
-                        {momentum.label}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        {/* Momentum — inner flex so it aligns with the row */}
+                        <td className="py-3.5 px-4">
+                          <span className={`inline-flex items-center gap-1.5 ${momentum.color}`}>
+                            <Icon size={14} />
+                            {momentum.label}
+                          </span>
+                        </td>
+
+                        {/* Action — delete */}
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            title="Delete deal"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTarget(deal);
+                            }}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
 
@@ -399,6 +457,54 @@ export default function DealsPage() {
           });
         }}
       />
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={closeDelete}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-50">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Delete deal?</h2>
+                <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              You&apos;re about to delete{" "}
+              <span className="font-medium text-slate-900">
+                {deleteTarget.name || "this deal"}
+              </span>
+              .
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={closeDelete}
+                disabled={deleting}
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* IMPORT MODAL */}
       {showImport && (
