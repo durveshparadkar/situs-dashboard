@@ -24,7 +24,7 @@
 //   - Dashboard → renders "Deals Requiring Attention" widget
 //   - Notification service → optionally emails high-priority alerts
 
-import type { Types } from "mongoose";
+import type { Types} from "mongoose";
 
 // ============================================================
 // VERSIONING
