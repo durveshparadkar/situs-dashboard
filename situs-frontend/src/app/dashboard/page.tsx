@@ -429,16 +429,16 @@ export default function DashboardPage() {
         </Card>
 
         {/* SIGNALS */}
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {signals.slice(0, 6).map((s) => (
-            <Card key={s.id}>
-              <AISignalCard {...s} />
-              <div className="text-xs text-slate-500 mt-3">
-                {getSignalAge(s.timestamp)}
-              </div>
-            </Card>
-          ))}
-        </div>
+        {/* SIGNALS */}
+<div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+  {signals.slice(0, 6).map((s) => (
+    <AISignalCard
+      key={s.id}
+      {...s}
+      timestamp={getSignalAge(s.timestamp)}
+    />
+  ))}
+</div>
 
         {/* CHART + FORECAST */}
         <div className="grid lg:grid-cols-2 gap-6">

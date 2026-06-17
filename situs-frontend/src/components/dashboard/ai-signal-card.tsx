@@ -23,6 +23,10 @@ interface AISignalCardProps {
   insight: string;
   reason?: string;
   action?: string;
+  /* Optional "x ago" label — rendered subtly inside the card footer.
+     Passing it here (instead of wrapping the card) avoids the
+     card-inside-a-card overflow. */
+  timestamp?: string;
 }
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -84,6 +88,7 @@ export default function AISignalCard({
   insight,
   reason,
   action,
+  timestamp,
 }: AISignalCardProps) {
   const [activeModal, setActiveModal] = useState<string | null>(null);
 
@@ -191,6 +196,13 @@ export default function AISignalCard({
               Email
             </button>
           </div>
+
+          {/* TIMESTAMP — rendered inside the card so it never overflows */}
+          {timestamp && (
+            <div className="text-[11px] text-zinc-400 pt-1">
+              {timestamp}
+            </div>
+          )}
         </CardContent>
       </Card>
 

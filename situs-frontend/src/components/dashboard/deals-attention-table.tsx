@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { motion as m } from "framer-motion";
-import { AlertCircle, ChevronRight } from "lucide-react";
+import { AlertCircle, ChevronRight, X } from "lucide-react";
 import { getRiskLevel } from "../../lib/deal-risk-engine";
 
 /* ✅ SINGLE UI TYPE — exported so other components can import */
@@ -57,8 +58,22 @@ export default function DealsAttentionTable({
   deals,
   onDealClickAction,
 }: Props) {
-  /* EMPTY STATE */
-  if (!deals || deals.length === 0) {
+  /* Dismissed alerts — hides the row from THIS view only.
+     The deal itself is untouched (delete lives on the Deals page). */
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  const visibleDeals = (deals ?? []).filter((d) => !dismissed.has(d.id));
+
+  const dismiss = (id: string) => {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  /* EMPTY STATE — also shows once everything has been dismissed */
+  if (!visibleDeals || visibleDeals.length === 0) {
     return (
       <div className="rounded-2xl border border-black/[0.06] bg-white p-8 text-center">
         <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-50 ring-1 ring-emerald-200/60 mb-3">
@@ -100,7 +115,7 @@ export default function DealsAttentionTable({
           </div>
         </div>
         <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-400 tabular-nums">
-          {deals.length} {deals.length === 1 ? "deal" : "deals"}
+          {visibleDeals.length} {visibleDeals.length === 1 ? "deal" : "deals"}
         </span>
       </header>
 
@@ -122,13 +137,13 @@ export default function DealsAttentionTable({
               <th className="py-2.5 px-4 text-[10.5px] font-medium uppercase tracking-[0.08em] text-zinc-400">
                 Reasons
               </th>
-              <th className="py-2.5 px-4 w-10" />
+              <th className="py-2.5 px-4 w-20" />
             </tr>
           </thead>
 
           {/* TBODY */}
           <tbody className="divide-y divide-black/[0.04]">
-            {deals.map(function (deal, i) {
+            {visibleDeals.map(function (deal, i) {
               const risk = getRiskLevel(deal.riskScore);
               const v = getBandVisuals(risk.label);
               const clickable = Boolean(onDealClickAction);
@@ -209,14 +224,30 @@ export default function DealsAttentionTable({
                     </span>
                   </td>
 
-                  {/* Chevron — only if clickable */}
+                  {/* Actions — chevron + dismiss */}
                   <td className="py-3.5 px-4 pr-6">
-                    {clickable && (
-                      <ChevronRight
-                        className="w-4 h-4 text-zinc-300 group-hover:text-zinc-700 group-hover:translate-x-0.5 transition-all ml-auto"
-                        strokeWidth={1.75}
-                      />
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {/* Dismiss — hides the alert from this view (deal kept) */}
+                      <button
+                        type="button"
+                        title="Dismiss alert"
+                        onClick={(e) => {
+                          e.stopPropagation(); // don't trigger row click
+                          dismiss(deal.id);
+                        }}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                      >
+                        <X className="w-4 h-4" strokeWidth={1.75} />
+                      </button>
+
+                      {/* Chevron — only if clickable */}
+                      {clickable && (
+                        <ChevronRight
+                          className="w-4 h-4 text-zinc-300 group-hover:text-zinc-700 group-hover:translate-x-0.5 transition-all"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                    </div>
                   </td>
                 </m.tr>
               );
