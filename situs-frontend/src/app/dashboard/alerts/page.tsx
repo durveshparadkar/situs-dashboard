@@ -91,8 +91,13 @@ function mapBackendAlert(a: BackendAlert): RevenueAlert {
 
 /* ================= HELPERS ================= */
 
-function formatCurrency(value: number) {
-  return `₹${(value / 1000).toFixed(0)}K`;
+/* Indian currency formatter — Cr / L / plain rupees.
+   Matches the dashboard so the whole app reads consistently. */
+function formatINR(rupees: number): string {
+  const v = rupees || 0;
+  if (v >= 10_000_000) return "₹" + (v / 10_000_000).toFixed(1) + "Cr";
+  if (v >= 100_000) return "₹" + (v / 100_000).toFixed(1) + "L";
+  return "₹" + v.toLocaleString("en-IN");
 }
 
 function getSeverityStyle(severity: AlertSeverity) {
@@ -291,9 +296,9 @@ export default function AlertsPage() {
         />
         <MetricCard
           title="Revenue Risk"
-          value={`₹${(
-            visibleAlerts.reduce((s, a) => s + a.impact, 0) / 1000000
-          ).toFixed(1)}M`}
+          value={formatINR(
+            visibleAlerts.reduce((s, a) => s + a.impact, 0)
+          )}
         />
       </div>
 
@@ -333,7 +338,7 @@ export default function AlertsPage() {
               </div>
 
               <div className="flex flex-col items-end gap-2">
-                <p>{formatCurrency(alert.impact)}</p>
+                <p>{formatINR(alert.impact)}</p>
 
                 <div className="flex gap-2 text-xs">
                   <button
