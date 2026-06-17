@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, ArrowRight, Upload } from "lucide-react";
+import { ArrowLeft, Plus, ArrowRight, Upload, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import MetricCard from "../../../components/dashboard/metric-card";
@@ -29,7 +29,7 @@ const Card = ({
   className?: string;
 }) => (
   <div
-    className={`rounded-xl border bg-white shadow-sm p-5 ${className}`}
+    className={ `rounded-xl border bg-white shadow-sm p-5 ${className}` }
   >
     {children}
   </div>
@@ -56,7 +56,7 @@ type LeadsResponse = {
 };
 
 function money(value: number) {
-  return `Rs. ${value.toLocaleString("en-IN")}`;
+  return `₹${value.toLocaleString("en-IN")}`;
 }
 
 function normalizeLead(input: Partial<Lead>): Lead {
@@ -130,6 +130,10 @@ export default function LeadsPage() {
     failed: number;
     skipped: Array<{ row: number; reason: string }>;
   } | null>(null);
+
+  /* Delete confirmation state */
+  const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchLeads = useCallback(async () => {
     try {
@@ -213,6 +217,34 @@ export default function LeadsPage() {
     }
   };
 
+  /* ================= DELETE HANDLERS ================= */
+  /* Backend's DELETE /api/leads/:id maps to archive, so we use the
+     proven archive action endpoint directly. The lead leaves the list. */
+
+  const closeDelete = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await apiFetch(`/api/leads/${deleteTarget._id}/actions/archive`, {
+        method: "PATCH",
+      });
+
+      setLeads((current) => current.filter((l) => l._id !== deleteTarget._id));
+      toast.success("Lead deleted");
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to delete lead");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   /* ================= IMPORT HANDLERS ================= */
 
   const handleDownloadTemplate = () => {
@@ -248,7 +280,7 @@ export default function LeadsPage() {
         skipped,
       });
 
-      toast.success(`${result.created} leads imported`);
+      toast.success(`✅ ${result.created} leads imported`);
 
       /* Refresh so newly imported leads appear */
       await fetchLeads();
@@ -396,29 +428,29 @@ export default function LeadsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-sm">
+              <table className="w-full min-w-[920px] text-sm">
                 <thead className="text-left text-slate-500 bg-slate-50">
                   <tr>
-                    <th className="p-4">Name</th>
-                    <th>Phone</th>
-                    <th>Location</th>
-                    <th>Budget</th>
-                    <th>Priority</th>
-                    <th className="text-right pr-4">Action</th>
+                    <th className="py-3 px-4 font-medium">Name</th>
+                    <th className="py-3 px-4 font-medium">Phone</th>
+                    <th className="py-3 px-4 font-medium">Location</th>
+                    <th className="py-3 px-4 font-medium">Budget</th>
+                    <th className="py-3 px-4 font-medium">Priority</th>
+                    <th className="py-3 px-4 font-medium text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {processedLeads.map((lead) => (
                     <tr
                       key={lead._id}
-                      className="border-t hover:bg-slate-50 cursor-pointer"
+                      className="border-t hover:bg-slate-50 cursor-pointer align-middle"
                       onClick={() => setSelectedLead(lead)}
                     >
-                      <td className="p-4 font-medium">{lead.name || "Untitled"}</td>
-                      <td>{lead.phone || "-"}</td>
-                      <td>{lead.interestedLocation || "-"}</td>
-                      <td>{money(lead.budget)}</td>
-                      <td>
+                      <td className="py-3.5 px-4 font-medium">{lead.name || "Untitled"}</td>
+                      <td className="py-3.5 px-4">{lead.phone || "-"}</td>
+                      <td className="py-3.5 px-4">{lead.interestedLocation || "-"}</td>
+                      <td className="py-3.5 px-4 tabular-nums">{money(lead.budget)}</td>
+                      <td className="py-3.5 px-4">
                         <span
                           className={`px-2 py-1 text-xs rounded-full border ${getPriorityBadge(
                             lead.brainPriority
@@ -427,17 +459,30 @@ export default function LeadsPage() {
                           {lead.brainPriority ?? "low"}
                         </span>
                       </td>
-                      <td className="text-right pr-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openConvert(lead);
-                          }}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100"
-                        >
-                          Convert
-                          <ArrowRight size={13} />
-                        </button>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openConvert(lead);
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100"
+                          >
+                            Convert
+                            <ArrowRight size={13} />
+                          </button>
+
+                          <button
+                            title="Delete lead"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTarget(lead);
+                            }}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -534,6 +579,54 @@ export default function LeadsPage() {
                 className="flex-1 bg-black text-white py-2 rounded-lg text-sm disabled:opacity-60"
               >
                 {converting ? "Converting..." : "Create Deal"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= DELETE CONFIRMATION MODAL ================= */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={closeDelete}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-50">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Delete lead?</h2>
+                <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              You&apos;re about to delete{" "}
+              <span className="font-medium text-slate-900">
+                {deleteTarget.name || "this lead"}
+              </span>
+              .
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={closeDelete}
+                disabled={deleting}
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
