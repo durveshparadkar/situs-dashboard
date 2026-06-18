@@ -58,7 +58,7 @@ export default function Topbar() {
   const loadAlerts = useCallback(async () => {
     try {
       const res = await apiFetch<AlertsResponse>(
-        "/api/alerts?status=active&limit=20"
+        "/api/alerts?status=open&limit=20"
       );
       setAlerts(Array.isArray(res?.data) ? res.data : []);
     } catch {

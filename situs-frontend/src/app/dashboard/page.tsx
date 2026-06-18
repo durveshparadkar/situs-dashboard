@@ -18,6 +18,7 @@ import RevenueForecast from "../../components/dashboard/revenue-forecast";
    All scoring now happens on the backend — single fetch, fully composed result. */
 import {
   getIntelligenceSummary,
+  refreshIntelligence,
   type IntelligenceSummary,
 } from "../../lib/intelligence/intelligence.api";
 
@@ -281,6 +282,15 @@ export default function DashboardPage() {
 
     async function fetchIntelligence() {
       try {
+        // Fire a real intelligence run once on load — this writes risk
+        // scores AND emits alerts (summary alone is a dry-run preview).
+        // Wrapped so a refresh failure never blocks the dashboard render.
+        try {
+          await refreshIntelligence();
+        } catch (refreshErr) {
+          console.error("Intelligence refresh failed (non-blocking)", refreshErr);
+        }
+
         const data = await getIntelligenceSummary();
         setIntel(data);
         setError(null);
