@@ -20,8 +20,8 @@ class LeadService {
         return new Types.ObjectId(id);
     }
     /* ================= BACKGROUND TASKS ================= */
-    async triggerAsync(leadId) {
-        Promise.allSettled([
+    triggerAsync(leadId) {
+        void Promise.allSettled([
             leadScoreService.calculateLeadScore(leadId),
             this.queueBrain(leadId),
         ]);
@@ -31,7 +31,7 @@ class LeadService {
             await brainQueue.add("analyze", {
                 leadId,
                 type: "analyze_lead",
-                organizationId: ""
+                organizationId: "",
             }, {
                 jobId: `brain-${leadId}`,
                 delay: 2000,
@@ -77,7 +77,7 @@ class LeadService {
     async create(data, user) {
         const session = await mongoose.startSession();
         try {
-            let createdId = null;
+            let createdDoc = null;
             await session.withTransaction(async () => {
                 const orgId = this.toObjectId(user.organizationId);
                 const userId = this.toObjectId(user._id);
@@ -109,20 +109,34 @@ class LeadService {
                     isArchived: false,
                 };
                 const doc = await new Lead(payload).save({ session });
-                createdId = doc._id;
+                createdDoc = doc;
+                /* NOTE: activity logging moved OUT of the transaction below.
+                   Logging inside the transaction queried the lead before commit,
+                   threw "Lead not found", and rolled back the whole create. */
+            });
+            if (!createdDoc) {
+                this.throwError("Creation failed", 500);
+            }
+            /* Log activity AFTER commit — never let it fail the request */
+            try {
                 await logLeadActivity({
-                    leadId: createdId.toString(),
+                    leadId: String(createdDoc._id),
                     action: "CREATED",
                     userId: user._id,
                 });
-            });
-            if (!createdId) {
-                this.throwError("Creation failed", 500);
             }
-            // 🔥 TYPE SAFE CAST (guaranteed after check)
-            const leadId = createdId;
-            this.triggerAsync(leadId.toString());
-            return Lead.findById(leadId);
+            catch (e) {
+                console.warn("logLeadActivity skipped:", e);
+            }
+            /* Fire-and-forget background work — never let it touch the response */
+            try {
+                this.triggerAsync(String(createdDoc._id));
+            }
+            catch {
+                /* ignore */
+            }
+            /* Return the document we already saved — no re-fetch, no replica lag */
+            return createdDoc;
         }
         finally {
             session.endSession();
@@ -177,11 +191,16 @@ class LeadService {
         }, { new: true });
         if (!updated)
             this.throwError("Update failed", 500);
-        await logLeadActivity({
-            leadId: id,
-            action: "UPDATED",
-            userId: user._id,
-        });
+        try {
+            await logLeadActivity({
+                leadId: id,
+                action: "UPDATED",
+                userId: user._id,
+            });
+        }
+        catch (e) {
+            console.warn("logLeadActivity skipped:", e);
+        }
         this.triggerAsync(id);
         return updated;
     }
@@ -198,11 +217,16 @@ class LeadService {
         lead.probability = stage.probability;
         lead.lastActivityAt = new Date();
         await lead.save();
-        await logLeadActivity({
-            leadId: id,
-            action: "STAGE_CHANGED",
-            userId: user._id,
-        });
+        try {
+            await logLeadActivity({
+                leadId: id,
+                action: "STAGE_CHANGED",
+                userId: user._id,
+            });
+        }
+        catch (e) {
+            console.warn("logLeadActivity skipped:", e);
+        }
         this.triggerAsync(id);
         return lead;
     }

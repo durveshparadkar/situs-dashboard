@@ -457,6 +457,75 @@ class IntelligenceService {
         }
     }
     // -----------------------------------------------------------
+    // EMIT ALERTS FROM ATTENTION ENGINE
+    // Persists urgent/high attention alerts (deals going quiet, stalled
+    // negotiations, hot leads cooling, etc.) into the Alert collection so
+    // they show on the Alerts page. Works on deals that have real activity
+    // history — fresh imports with no activity won't trigger (by design).
+    // Dedup via dedupKey: one alert per deal+type per day.
+    // -----------------------------------------------------------
+    async emitAlertsFromAttention(organizationId, attentionAlerts, actorId) {
+        if (!INTELLIGENCE_CONFIG.emitAlerts)
+            return 0;
+        const today = new Date().toISOString().slice(0, 10);
+        const alertsToCreate = [];
+        for (const att of attentionAlerts) {
+            // Only persist the alerts that matter — urgent/high only.
+            if (att.priority !== "critical" && att.priority !== "high")
+                continue;
+            if (att.dealId === undefined)
+                continue;
+            const idStr = String(att.dealId);
+            // Map attention priority -> Alert severity vocabulary
+            const severity = att.priority === "critical" ? "critical" : "high";
+            // One alert per deal + attention-type + day
+            const dedupKey = "deal-attention:" + idStr + ":" + att.type + ":" + today;
+            const alertDoc = {
+                type: "warning",
+                severity,
+                title: att.dealName,
+                message: att.message,
+                relatedTo: {
+                    type: "deal",
+                    id: att.dealId,
+                },
+                organizationId,
+                status: "open",
+                isRead: false,
+                dedupKey,
+                source: "deals-attention-engine",
+                impactScore: att.impactScore,
+                recommendedAction: att.recommendedAction,
+                metadata: {
+                    attentionType: att.type,
+                    priority: att.priority,
+                    engineVersion: att.engineVersion,
+                },
+            };
+            if (actorId)
+                alertDoc.triggeredBy = actorId;
+            alertsToCreate.push(alertDoc);
+        }
+        if (alertsToCreate.length === 0)
+            return 0;
+        const AlertModel = Alert;
+        try {
+            const created = await AlertModel.insertMany(alertsToCreate, { ordered: false } // continue past duplicate-key (dedup) errors
+            );
+            return created.length;
+        }
+        catch (err) {
+            // Duplicate-key errors are EXPECTED (dedup working). Count partial inserts.
+            const e = err;
+            const insertedCount = Array.isArray(e?.insertedDocs) ? e.insertedDocs.length : 0;
+            if (insertedCount > 0)
+                return insertedCount;
+            dbLogger.warn("Attention alert insertMany partial failure: " +
+                (err?.message ?? "unknown"));
+            return 0;
+        }
+    }
+    // -----------------------------------------------------------
     // MAIN RUN — orchestrate everything
     // -----------------------------------------------------------
     /**
@@ -528,7 +597,7 @@ class IntelligenceService {
                 dbLogger.error(msg);
             }
         }
-        // 4. Emit alerts for critical crossings
+        // 4. Emit alerts — critical risk crossings + attention alerts
         let alertsEmitted = 0;
         if (!dryRun && !input.skipAlerts && INTELLIGENCE_CONFIG.emitAlerts) {
             try {
@@ -536,6 +605,16 @@ class IntelligenceService {
             }
             catch (err) {
                 const msg = "emit-alerts: " + (err?.message ?? "unknown");
+                engineResult.errors.push(msg);
+                dbLogger.error(msg);
+            }
+            // Attention-based alerts (deals going quiet, stalled, etc.)
+            try {
+                const attentionEmitted = await this.emitAlertsFromAttention(toObjectId(input.organizationId), engineResult.attentionAlerts, input.actorId ? toObjectId(input.actorId) : undefined);
+                alertsEmitted += attentionEmitted;
+            }
+            catch (err) {
+                const msg = "emit-attention-alerts: " + (err?.message ?? "unknown");
                 engineResult.errors.push(msg);
                 dbLogger.error(msg);
             }

@@ -53,6 +53,7 @@ router.get("/intelligence/agent-performance", async (req, res, next) => {
 ===================================================== */
 router.post("/", requirePermission("CREATE_LEAD"), leadController.create);
 router.get("/", requirePermission("READ_LEAD"), leadController.findAll);
+router.post("/bulk", requirePermission("CREATE_LEAD"), leadController.bulkCreate);
 /* =====================================================
    ⚙️ ACTION ROUTES (CLEANED)
 ===================================================== */

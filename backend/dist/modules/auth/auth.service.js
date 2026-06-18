@@ -167,9 +167,14 @@ class AuthService {
            Uses untyped access since the User schema may not declare
            the role field — Mongoose stores it anyway when set. */
         const userAny = user;
-        if (!userAny.role) {
+        if (!userAny.role || !userAny.roleId) {
+            const adminRole = await ensureOrgAdminRole();
             userAny.role = "ORG_ADMIN";
-            await User.findByIdAndUpdate(user._id, { role: "ORG_ADMIN" });
+            userAny.roleId = adminRole._id;
+            await User.findByIdAndUpdate(user._id, {
+                role: "ORG_ADMIN",
+                roleId: adminRole._id,
+            });
         }
         let org = await Organization.findById(user.organizationId)
             .select("_id name slug plan createdAt updatedAt");
