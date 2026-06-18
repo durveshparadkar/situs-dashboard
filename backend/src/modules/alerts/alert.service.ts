@@ -7,7 +7,12 @@ import Alert from "./alert.model.js";
 
 export type AlertType     = "risk" | "opportunity" | "warning";
 export type AlertSeverity = "low" | "medium" | "high" | "critical";
-export type AlertStatus   = "active" | "resolved";
+
+/* Status vocabulary MUST match alert.model.ts ALERT_STATUSES.
+   The model uses: open | acknowledged | resolved | dismissed.
+   (This file previously used "active" — a value that does not exist
+   in the schema, so every status-filtered query matched nothing.) */
+export type AlertStatus   = "open" | "acknowledged" | "resolved" | "dismissed";
 
 export interface CreateAlertInput {
   type:     AlertType;
@@ -77,7 +82,7 @@ class AlertService {
     const existing = await Alert.findOne({
       organizationId: orgId,
       dedupKey,
-      status:    "active",
+      status:    "open",
       createdAt: { $gte: cooldownTime },
     })
       .select("_id")
@@ -99,7 +104,7 @@ class AlertService {
             organizationId: orgId,
             dedupKey,
             isRead:   false,
-            status:   "active",
+            status:   "open",
             metadata: data.metadata ?? {},
           },
         },
@@ -118,7 +123,9 @@ class AlertService {
     }
   }
 
-  /* ── GET ALERTS (paginated + filterable) ── */
+  /* ── GET ALERTS (paginated + filterable) ──
+     Default status filter is "open" (the initial lifecycle state),
+     not the old "active" which never existed in the schema. */
   async getAlerts(
     orgId:   string,
     options: GetAlertsOptions = {}
@@ -126,15 +133,24 @@ class AlertService {
     const {
       page     = 1,
       limit    = 20,
-      status   = "active",
+      status,
       isRead,
       severity,
     } = options;
 
     const query: Record<string, unknown> = {
       organizationId: toObjectId(orgId),
-      status,
+      isDeleted:      false,
     };
+
+    /* Only filter by status when the caller specifies one.
+       The alerts page passes no status, so it should see all
+       non-deleted alerts (open + acknowledged). */
+    if (status) {
+      query.status = status;
+    } else {
+      query.status = { $in: ["open", "acknowledged"] };
+    }
 
     if (typeof isRead === "boolean") query.isRead   = isRead;
     if (severity)                    query.severity = severity;
@@ -166,7 +182,8 @@ class AlertService {
     return Alert.countDocuments({
       organizationId: toObjectId(orgId),
       isRead:  false,
-      status:  "active",
+      isDeleted: false,
+      status:  { $in: ["open", "acknowledged"] },
     });
   }
 
@@ -195,7 +212,7 @@ class AlertService {
 
     return Alert.findByIdAndUpdate(
       alertId,
-      { status: "resolved", isRead: true },
+      { status: "resolved", isRead: true, resolvedAt: new Date() },
       { new: true }
     ).lean();
   }
@@ -211,9 +228,9 @@ class AlertService {
         "relatedTo.type": relatedType,
         "relatedTo.id":   toObjectId(relatedId),
         organizationId:   toObjectId(organizationId),
-        status:           "active",
+        status:           { $in: ["open", "acknowledged"] },
       },
-      { status: "resolved", isRead: true }
+      { status: "resolved", isRead: true, resolvedAt: new Date() }
     );
   }
 
