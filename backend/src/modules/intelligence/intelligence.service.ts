@@ -800,11 +800,16 @@ class IntelligenceService {
     };
 
     try {
-      const created = await AlertModel.insertMany(
-        alertsToCreate,
-        { ordered: false } // continue past duplicate-key (dedup) errors
-      );
-      return created.length;
+      let written = 0;
+      for (const doc of alertsToCreate) {
+        const res = await (AlertModel as any).updateOne(
+          { organizationId: doc.organizationId, dedupKey: doc.dedupKey },
+          { $set: doc },
+          { upsert: true }
+        );
+        if ((res?.upsertedCount ?? 0) > 0 || (res?.modifiedCount ?? 0) > 0) written++;
+      }
+      return written;
     } catch (err) {
       // Duplicate-key errors are EXPECTED (dedup working). Count partial inserts.
       const e = err as { insertedDocs?: Array<unknown> };
