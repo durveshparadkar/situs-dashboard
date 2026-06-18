@@ -471,13 +471,14 @@ class IntelligenceService {
         const alertsToCreate = [];
         for (const att of attentionAlerts) {
             // Only persist the alerts that matter — urgent/high only.
-            if (att.priority !== "critical" && att.priority !== "high")
+            if (att.priority === "low")
                 continue;
             if (att.dealId === undefined)
                 continue;
             const idStr = String(att.dealId);
             // Map attention priority -> Alert severity vocabulary
-            const severity = att.priority === "critical" ? "critical" : "high";
+            const severity = att.priority === "critical" ? "critical" :
+                att.priority === "high" ? "high" : "medium";
             // One alert per deal + attention-type + day
             const dedupKey = "deal-attention:" + idStr + ":" + att.type + ":" + today;
             const alertDoc = {
