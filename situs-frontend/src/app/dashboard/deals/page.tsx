@@ -150,6 +150,11 @@ export default function DealsPage() {
   const [closeOutcome, setCloseOutcome] = useState<"won" | "lost">("won");
   const [closing, setClosing] = useState(false);
 
+  /* Pipeline stages — used to move deal into Won/Lost stage on close,
+     so the analytics funnel groups it under WON/LOST instead of Discovery. */
+  const [wonStageId, setWonStageId] = useState<string | null>(null);
+  const [lostStageId, setLostStageId] = useState<string | null>(null);
+
   /* ================= FETCH ================= */
 
   const fetchDeals = useCallback(async () => {
@@ -178,6 +183,33 @@ export default function DealsPage() {
   useEffect(() => {
     fetchDeals();
   }, [fetchDeals]);
+
+  /* Load the default pipeline once, to find the Won/Lost stage IDs.
+     Marking a deal won/lost moves it into that stage so the funnel updates. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { stages: Array<{ _id: string; isWon?: boolean; isLost?: boolean }> };
+        }>("/api/pipelines/default");
+
+        const stages = res?.data?.stages ?? [];
+        if (cancelled) return;
+
+        const won = stages.find((s) => s.isWon === true);
+        const lost = stages.find((s) => s.isLost === true);
+        setWonStageId(won?._id ?? null);
+        setLostStageId(lost?._id ?? null);
+      } catch (err) {
+        console.error("Failed to load pipeline stages", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /* ================= IMPORT HANDLERS ================= */
 
@@ -267,16 +299,19 @@ export default function DealsPage() {
     try {
       setClosing(true);
 
-      /* PATCH /api/deals/:id with the new status. The Deal model's
-         pre-save hook auto-stamps actualCloseDate + forecastCategory,
-         so analytics (revenue, conversion, trend) picks it up. We also
-         send actualCloseDate explicitly as a safety net. */
+      /* PATCH /api/deals/:id with the new status AND the matching pipeline
+         stage (Won or Lost). Setting stageId moves the deal into that funnel
+         column so analytics' funnel reflects it. The Deal model's pre-save
+         hook auto-stamps actualCloseDate + forecastCategory, so revenue,
+         conversion, and trend pick it up too. */
       const updated = await apiFetch<{ success: boolean; data: BackendDeal }>(
         "/api/deals/" + closeTarget._id,
         {
           method: "PATCH",
           body: JSON.stringify({
             status: closeOutcome,
+            ...(closeOutcome === "won" && wonStageId ? { stageId: wonStageId } : {}),
+            ...(closeOutcome === "lost" && lostStageId ? { stageId: lostStageId } : {}),
           }),
         }
       );
