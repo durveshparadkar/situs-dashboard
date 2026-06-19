@@ -277,7 +277,6 @@ export default function DealsPage() {
           method: "PATCH",
           body: JSON.stringify({
             status: closeOutcome,
-            actualCloseDate: new Date().toISOString(),
           }),
         }
       );
