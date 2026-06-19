@@ -11,11 +11,15 @@ import {
   Plus,
   Upload,
   Trash2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import MetricCard from "../../../components/dashboard/metric-card";
 import DealDrawer from "../../../components/drawers/deal-drawer";
+
+import { apiFetch } from "@/lib/api";
 
 import {
   listDeals,
@@ -55,6 +59,8 @@ const Card = ({
 
 /* ================= TYPES ================= */
 
+type DealStatus = "open" | "won" | "lost" | "stalled" | "abandoned";
+
 type RankedDeal = {
   _id: string;
   name: string;
@@ -62,6 +68,7 @@ type RankedDeal = {
   probability: number;
   riskScore: number;
   lastActivityDays: number;
+  status: DealStatus;
 };
 
 /* ================= HELPERS ================= */
@@ -97,6 +104,15 @@ function getLastActivityDays(deal: BackendDeal): number {
 /* Map BackendDeal → RankedDeal shape the existing UI expects.
    Backend already ran the risk engine — we trust riskScore from the wire. */
 function mapBackendDealToRanked(d: BackendDeal): RankedDeal {
+  const rawStatus = (d as unknown as { status?: string }).status;
+  const status: DealStatus =
+    rawStatus === "won" ||
+    rawStatus === "lost" ||
+    rawStatus === "stalled" ||
+    rawStatus === "abandoned"
+      ? rawStatus
+      : "open";
+
   return {
     _id:              d._id,
     name:             d.title,
@@ -104,6 +120,7 @@ function mapBackendDealToRanked(d: BackendDeal): RankedDeal {
     probability:      d.probability ?? 0,
     riskScore:        d.riskScore ?? 0,
     lastActivityDays: getLastActivityDays(d),
+    status,
   };
 }
 
@@ -127,6 +144,11 @@ export default function DealsPage() {
   /* Delete confirmation state */
   const [deleteTarget, setDeleteTarget] = useState<RankedDeal | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  /* Won / Lost confirmation state */
+  const [closeTarget, setCloseTarget] = useState<RankedDeal | null>(null);
+  const [closeOutcome, setCloseOutcome] = useState<"won" | "lost">("won");
+  const [closing, setClosing] = useState(false);
 
   /* ================= FETCH ================= */
 
@@ -225,6 +247,64 @@ export default function DealsPage() {
       toast.error(err instanceof Error ? err.message : "Failed to delete deal");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  /* ================= WON / LOST HANDLERS ================= */
+
+  const openCloseModal = (deal: RankedDeal, outcome: "won" | "lost") => {
+    setCloseTarget(deal);
+    setCloseOutcome(outcome);
+  };
+
+  const closeCloseModal = () => {
+    if (closing) return;
+    setCloseTarget(null);
+  };
+
+  const handleMarkClosed = async () => {
+    if (!closeTarget) return;
+    try {
+      setClosing(true);
+
+      /* PATCH /api/deals/:id with the new status. The Deal model's
+         pre-save hook auto-stamps actualCloseDate + forecastCategory,
+         so analytics (revenue, conversion, trend) picks it up. We also
+         send actualCloseDate explicitly as a safety net. */
+      const updated = await apiFetch<{ success: boolean; data: BackendDeal }>(
+        "/api/deals/" + closeTarget._id,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: closeOutcome,
+            actualCloseDate: new Date().toISOString(),
+          }),
+        }
+      );
+
+      const savedDeal = updated?.data;
+
+      /* Update local state so the badge flips immediately. */
+      setDeals((current) =>
+        current.map((d) => {
+          if (d._id !== closeTarget._id) return d;
+          if (savedDeal && savedDeal._id) return savedDeal;
+          /* Fallback: patch the status locally if the response is thin */
+          return { ...d, status: closeOutcome } as BackendDeal;
+        })
+      );
+
+      toast.success(
+        closeOutcome === "won" ? "Deal marked as Won" : "Deal marked as Lost"
+      );
+      setCloseTarget(null);
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update deal"
+      );
+    } finally {
+      setClosing(false);
     }
   };
 
@@ -363,7 +443,7 @@ export default function DealsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
+              <table className="w-full min-w-[920px] text-sm">
                 <thead className="text-left text-slate-500 bg-slate-50">
                   <tr>
                     <th className="py-3 px-4 font-medium">Deal</th>
@@ -379,6 +459,7 @@ export default function DealsPage() {
                   {finalDeals.map((deal) => {
                     const momentum = getMomentum(deal.lastActivityDays);
                     const Icon = momentum.icon;
+                    const isClosed = deal.status === "won" || deal.status === "lost";
 
                     return (
                       <tr
@@ -387,7 +468,21 @@ export default function DealsPage() {
                         onClick={() => setSelectedDeal(deal)}
                       >
                         {/* Deal */}
-                        <td className="py-3.5 px-4 font-medium">{deal.name}</td>
+                        <td className="py-3.5 px-4 font-medium">
+                          <span className="inline-flex items-center gap-2">
+                            {deal.name}
+                            {deal.status === "won" && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                                Won
+                              </span>
+                            )}
+                            {deal.status === "lost" && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">
+                                Lost
+                              </span>
+                            )}
+                          </span>
+                        </td>
 
                         {/* Value */}
                         <td className="py-3.5 px-4 tabular-nums">
@@ -420,18 +515,48 @@ export default function DealsPage() {
                           </span>
                         </td>
 
-                        {/* Action — delete */}
+                        {/* Action — Won / Lost / Delete */}
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            title="Delete deal"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteTarget(deal);
-                            }}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            {!isClosed && (
+                              <>
+                                <button
+                                  title="Mark as Won"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCloseModal(deal, "won");
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-emerald-700 hover:bg-emerald-50 border border-emerald-200 transition-colors text-xs font-medium"
+                                >
+                                  <CheckCircle2 size={14} />
+                                  Won
+                                </button>
+
+                                <button
+                                  title="Mark as Lost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCloseModal(deal, "lost");
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-slate-500 hover:bg-slate-100 border border-slate-200 transition-colors text-xs font-medium"
+                                >
+                                  <XCircle size={14} />
+                                  Lost
+                                </button>
+                              </>
+                            )}
+
+                            <button
+                              title="Delete deal"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget(deal);
+                              }}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -457,6 +582,76 @@ export default function DealsPage() {
           });
         }}
       />
+
+      {/* WON / LOST CONFIRMATION MODAL */}
+      {closeTarget && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={closeCloseModal}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              {closeOutcome === "won" ? (
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald-50">
+                  <CheckCircle2 size={18} className="text-emerald-600" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-100">
+                  <XCircle size={18} className="text-slate-500" />
+                </div>
+              )}
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {closeOutcome === "won" ? "Mark deal as Won?" : "Mark deal as Lost?"}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  This closes the deal and records the date.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              You&apos;re about to mark{" "}
+              <span className="font-medium text-slate-900">
+                {closeTarget.name || "this deal"}
+              </span>{" "}
+              as{" "}
+              <span className="font-medium text-slate-900">
+                {closeOutcome === "won" ? "Won" : "Lost"}
+              </span>
+              .
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={closeCloseModal}
+                disabled={closing}
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMarkClosed}
+                disabled={closing}
+                className={
+                  closeOutcome === "won"
+                    ? "flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-60"
+                    : "flex-1 bg-slate-700 text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60"
+                }
+              >
+                {closing
+                  ? "Saving..."
+                  : closeOutcome === "won"
+                    ? "Mark Won"
+                    : "Mark Lost"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {deleteTarget && (
