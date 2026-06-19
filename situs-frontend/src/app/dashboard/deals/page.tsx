@@ -635,11 +635,7 @@ export default function DealsPage() {
               <button
                 onClick={handleMarkClosed}
                 disabled={closing}
-                className={
-                  closeOutcome === "won"
-                    ? "flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-60"
-                    : "flex-1 bg-slate-700 text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60"
-                }
+                className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-black/90 disabled:opacity-60"
               >
                 {closing
                   ? "Saving..."
