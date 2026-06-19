@@ -1,6 +1,7 @@
 // forecast.service.ts
 import mongoose from "mongoose";
 import Deal from "../deals/deal.model.js";
+import Pipeline from "../pipelines/pipeline.model.js";
 import { dbLogger } from "../../utils/logger.js";
 /* =====================================================
    ERRORS
@@ -184,6 +185,37 @@ class ForecastService {
         return result.summary;
     }
     /* =====================================================
+       STAGE NAME LOOKUP
+       Builds a map of { stageId -> stageName } from the org's pipelines.
+       Used so the breakdown can show real stage names (DISCOVERY, WON...)
+       instead of raw ObjectId strings.
+    ===================================================== */
+    async buildStageNameMap(orgId) {
+        const map = {};
+        try {
+            /* Load every pipeline for this org and flatten their stages.
+               A pipeline doc has a "stages" array; each stage has _id + name. */
+            const pipelines = await Pipeline.find({
+                organizationId: toObjectId(orgId),
+                isDeleted: { $ne: true },
+            }).lean();
+            for (const p of pipelines) {
+                const stages = Array.isArray(p.stages) ? p.stages : [];
+                for (const s of stages) {
+                    if (s && s._id != null) {
+                        const id = String(s._id);
+                        if (s.name)
+                            map[id] = s.name;
+                    }
+                }
+            }
+        }
+        catch (err) {
+            dbLogger.error(`buildStageNameMap failed for org=${orgId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return map;
+    }
+    /* =====================================================
        BREAKDOWN — group forecast by stage / owner / month / week
     ===================================================== */
     async getForecastBreakdown(orgId, groupBy = "stage") {
@@ -197,29 +229,24 @@ class ForecastService {
         };
         /* Build the $group _id based on requested grouping */
         let groupId;
-        let labelField;
         switch (groupBy) {
             case "stage":
                 groupId = "$stageId";
-                labelField = "stageId";
                 break;
             case "owner":
                 groupId = "$assignedTo";
-                labelField = "assignedTo";
                 break;
             case "month":
                 groupId = {
                     y: { $year: "$expectedCloseDate" },
                     m: { $month: "$expectedCloseDate" },
                 };
-                labelField = "month";
                 break;
             case "week":
                 groupId = {
                     y: { $year: "$expectedCloseDate" },
                     w: { $week: "$expectedCloseDate" },
                 };
-                labelField = "week";
                 break;
         }
         const results = await Deal.aggregate([
@@ -258,15 +285,43 @@ class ForecastService {
             { $sort: { totalValue: -1 } },
             { $limit: 100 },
         ]);
-        return results.map((r) => ({
-            key: r._id ? String(r._id) : "(unassigned)",
-            label: labelField, // controller can hydrate names later
-            totalValue: safeInt(r.totalValue),
-            weightedValue: safeInt(r.weightedValue),
-            commitValue: safeInt(r.commitValue),
-            bestCaseValue: safeInt(r.bestCaseValue),
-            dealCount: r.dealCount ?? 0,
-        }));
+        /* For stage grouping, resolve each stageId into its real stage name.
+           Without this, the chart labels every bar with the raw ObjectId
+           (or the literal word "stageId"), so the chart can't be read. */
+        let stageNames = {};
+        if (groupBy === "stage") {
+            stageNames = await this.buildStageNameMap(orgId);
+        }
+        return results.map((r) => {
+            const rawKey = r._id != null ? String(r._id) : "(unassigned)";
+            /* Resolve a human label depending on grouping */
+            let label = rawKey;
+            if (groupBy === "stage") {
+                label = stageNames[rawKey] || "(no stage)";
+            }
+            else if (groupBy === "month" && r._id && typeof r._id === "object") {
+                const m = r._id;
+                if (m.y && m.m)
+                    label = `${m.y}-${String(m.m).padStart(2, "0")}`;
+            }
+            else if (groupBy === "week" && r._id && typeof r._id === "object") {
+                const w = r._id;
+                if (w.y && w.w != null)
+                    label = `${w.y} W${w.w}`;
+            }
+            else if (groupBy === "owner") {
+                label = rawKey === "(unassigned)" ? "Unassigned" : rawKey;
+            }
+            return {
+                key: rawKey,
+                label,
+                totalValue: safeInt(r.totalValue),
+                weightedValue: safeInt(r.weightedValue),
+                commitValue: safeInt(r.commitValue),
+                bestCaseValue: safeInt(r.bestCaseValue),
+                dealCount: r.dealCount ?? 0,
+            };
+        });
     }
     /* =====================================================
        PRIVATE — open pipeline aggregation

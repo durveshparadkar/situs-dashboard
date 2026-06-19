@@ -28,7 +28,7 @@ class AlertService {
         const existing = await Alert.findOne({
             organizationId: orgId,
             dedupKey,
-            status: "active",
+            status: "open",
             createdAt: { $gte: cooldownTime },
         })
             .select("_id")
@@ -47,7 +47,7 @@ class AlertService {
                     organizationId: orgId,
                     dedupKey,
                     isRead: false,
-                    status: "active",
+                    status: "open",
                     metadata: data.metadata ?? {},
                 },
             }, { new: true, upsert: true }).lean();
@@ -62,13 +62,24 @@ class AlertService {
             throw err;
         }
     }
-    /* ── GET ALERTS (paginated + filterable) ── */
+    /* ── GET ALERTS (paginated + filterable) ──
+       Default status filter is "open" (the initial lifecycle state),
+       not the old "active" which never existed in the schema. */
     async getAlerts(orgId, options = {}) {
-        const { page = 1, limit = 20, status = "active", isRead, severity, } = options;
+        const { page = 1, limit = 20, status, isRead, severity, } = options;
         const query = {
             organizationId: toObjectId(orgId),
-            status,
+            isDeleted: false,
         };
+        /* Only filter by status when the caller specifies one.
+           The alerts page passes no status, so it should see all
+           non-deleted alerts (open + acknowledged). */
+        if (status) {
+            query.status = status;
+        }
+        else {
+            query.status = { $in: ["open", "acknowledged"] };
+        }
         if (typeof isRead === "boolean")
             query.isRead = isRead;
         if (severity)
@@ -97,7 +108,8 @@ class AlertService {
         return Alert.countDocuments({
             organizationId: toObjectId(orgId),
             isRead: false,
-            status: "active",
+            isDeleted: false,
+            status: { $in: ["open", "acknowledged"] },
         });
     }
     /* ── MARK AS READ ── */
@@ -114,7 +126,7 @@ class AlertService {
     async resolveAlert(alertId) {
         if (!Types.ObjectId.isValid(alertId))
             return null;
-        return Alert.findByIdAndUpdate(alertId, { status: "resolved", isRead: true }, { new: true }).lean();
+        return Alert.findByIdAndUpdate(alertId, { status: "resolved", isRead: true, resolvedAt: new Date() }, { new: true }).lean();
     }
     /* ── RESOLVE BY ENTITY (smart bulk cleanup) ── */
     async resolveByEntity(relatedType, relatedId, organizationId) {
@@ -122,8 +134,8 @@ class AlertService {
             "relatedTo.type": relatedType,
             "relatedTo.id": toObjectId(relatedId),
             organizationId: toObjectId(organizationId),
-            status: "active",
-        }, { status: "resolved", isRead: true });
+            status: { $in: ["open", "acknowledged"] },
+        }, { status: "resolved", isRead: true, resolvedAt: new Date() });
     }
     /* ── DELETE ALERT ── */
     async deleteAlert(alertId) {
