@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { DEMO_URL, SIGNUP_URL } from "./shared/constants";
 
@@ -97,21 +96,26 @@ export default function Nav() {
           height: 56,
         }}>
 
-          {/* Wordmark */}
-          <a
-            href="#"
-            aria-label="Situs home"
-            style={{ textDecoration: "none", display: "flex", alignItems: "center" }}
-          >
-            <Image
-              src="/situs-logo-dark.png"
-              alt="Situs"
-              width={56}
-              height={26}
-              priority
-              style={{ height: 26, width: "auto", display: "block" }}
-            />
-          </a>
+         {/* Wordmark */}
+<a
+  href="#"
+  aria-label="Situs — home"
+  style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}
+>
+  <span style={{
+    width: 30, height: 30,
+    background: "linear-gradient(135deg, #0A0A0A 0%, #333 100%)",
+    borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+  }}>
+    <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, letterSpacing: "-0.05em" }}>
+      S
+    </span>
+  </span>
+  <span style={{ fontSize: 17, fontWeight: 800, color: "var(--t-primary)", letterSpacing: "-0.04em" }}>
+    Situs
+  </span>
+</a>
 
           {/* Links */}
           <div className="nav-links" style={{ display: "flex", alignItems: "center", gap: 2 }}>
