@@ -1,0 +1,5 @@
+import Image from "next/image";
+
+<a href="#" aria-label="Situs — home" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
+  <Image src="/situs-logo-dark.png" alt="Situs" height={26} width={56} style={{ width: "auto" }} priority />
+</a>
