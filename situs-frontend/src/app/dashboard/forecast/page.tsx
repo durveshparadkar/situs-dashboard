@@ -61,6 +61,18 @@ type BreakdownItem = {
   dealCount: number;
 };
 
+/* Deal shape used for risk insight (matches Deal schema's riskLevel) */
+type DealLite = {
+  value: number;
+  riskLevel: "low" | "medium" | "high" | "critical";
+};
+
+const mapRisk = (level: DealLite["riskLevel"]): "Low" | "Medium" | "High" => {
+  if (level === "low") return "Low";
+  if (level === "medium") return "Medium";
+  return "High"; // collapses "high" and "critical" into High
+};
+
 /* ================= HELPERS ================= */
 
 const formatMoney = (v: number) => `₹${(v ?? 0).toLocaleString("en-IN")}`;
@@ -114,6 +126,7 @@ export default function ForecastPage() {
 
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownItem[]>([]);
+  const [deals, setDeals] = useState<DealLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ForecastInsight | null>(null);
 
@@ -145,6 +158,19 @@ export default function ForecastPage() {
         console.error("Failed to load breakdown", err);
       }
 
+      try {
+        /* Open deals — drives the Low/Medium/High risk cards.
+           ⚠️ UNVERIFIED ENDPOINT — confirm this matches your real deals route. */
+        const res = await apiFetch<{ success: boolean; data: DealLite[] }>(
+          "/api/deals?status=open"
+        );
+        if (res?.success && Array.isArray(res.data)) {
+          setDeals(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load deals for risk insight", err);
+      }
+
       setLoading(false);
     };
 
@@ -163,6 +189,12 @@ export default function ForecastPage() {
         .slice(0, 5)
         .map((b) => ({ name: b.label || b.key, value: b.weightedValue })),
     [breakdown]
+  );
+
+  /* Risk cards: map Deal schema's riskLevel into RiskInsight's expected shape */
+  const riskDeals = useMemo(
+    () => deals.map((d) => ({ risk: mapRisk(d.riskLevel), value: d.value })),
+    [deals]
   );
 
   if (loading) return <div className="p-6">Loading...</div>;
@@ -250,7 +282,7 @@ export default function ForecastPage() {
         </Card>
 
         <Card>
-          <RiskInsight deals={[]} />
+          <RiskInsight deals={riskDeals} />
         </Card>
       </div>
 
