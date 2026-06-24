@@ -1,370 +1,348 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Bell } from "lucide-react";
-import MetricCard from "../../../components/dashboard/metric-card";
-import toast from "react-hot-toast";
+import RevenueChart from "../../../components/forecast/revenue-chart";
+import RiskInsight from "../../../components/forecast/risk-insight";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
 
-/* ================= TYPES ================= */
+/* ================= TYPES (match backend forecast.service.ts) ================= */
 
-type AlertSeverity = "critical" | "watch" | "opportunity";
-type AlertStatus = "new" | "acknowledged" | "snoozed" | "resolved";
+type ForecastSummary = {
+  totalPipelineValue: number;
+  weightedForecast: number;
+  commitForecast: number;
+  bestCaseForecast: number;
+  closedWonValue: number;
+  closedLostValue: number;
+  averageDealSize: number;
+};
 
-type RevenueAlert = {
-  id: string;
-  title: string;
+type ForecastMetrics = {
+  totalDeals: number;
+  openDeals: number;
+  closedWon: number;
+  closedLost: number;
+  commitDeals: number;
+  bestCaseDeals: number;
+  conversionRate: number;
+  winRate: number;
+  pipelineHealth: number;
+  averageProbability: number;
+  overdueDeals: number;
+  stalledDeals: number;
+};
+
+type ForecastInsight = {
+  level: "info" | "warning" | "critical" | "positive";
+  category: string;
   message: string;
-  company: string;
-  severity: AlertSeverity;
-  status: AlertStatus;
-  impact: number;
-  detectedAt: string;
-  action: string;
-  detail: string;
-  riskScore?: number;
-  snoozedUntil?: string;
-  aiReason?: string;
+  reasoning?: string[];
+  metric?: number;
 };
 
-type Notification = {
-  _id: string;
-  title: string;
-  read: boolean;
-  createdAt: string;
+type ForecastResult = {
+  summary: ForecastSummary;
+  metrics: ForecastMetrics;
+  insights: ForecastInsight[];
 };
 
-/* Backend alert shape (subset we read) */
-type BackendAlert = {
-  _id: string;
-  title: string;
-  message: string;
-  severity: "low" | "medium" | "high" | "critical";
-  status: "open" | "acknowledged" | "resolved" | "dismissed";
-  impactScore?: number;
-  createdAt: string;
-  recommendedAction?: string;
-  relatedTo?: { label?: string };
+/* Breakdown item (for the chart) */
+type BreakdownItem = {
+  key: string;
+  label: string;
+  totalValue: number;
+  weightedValue: number;
+  commitValue: number;
+  bestCaseValue: number;
+  dealCount: number;
 };
 
-/* ================= MAPPERS ================= */
+/* Deal shape used for risk insight (matches Deal schema's riskLevel) */
+type DealLite = {
+  value: number;
+  riskLevel: "low" | "medium" | "high" | "critical";
+};
 
-function mapSeverity(s: BackendAlert["severity"]): AlertSeverity {
-  if (s === "critical") return "critical";
-  if (s === "high" || s === "medium") return "watch";
-  return "opportunity";
-}
-
-function mapStatus(s: BackendAlert["status"]): AlertStatus {
-  if (s === "open") return "new";
-  if (s === "acknowledged") return "acknowledged";
-  if (s === "resolved" || s === "dismissed") return "resolved";
-  return "new";
-}
-
-function generateReason(severity: AlertSeverity): string {
-  if (severity === "critical") return "High impact + urgent attention required";
-  if (severity === "watch") return "Moderate risk trend detected";
-  return "Potential opportunity detected";
-}
-
-function mapBackendAlert(a: BackendAlert): RevenueAlert {
-  const severity = mapSeverity(a.severity);
-  return {
-    id: a._id,
-    title: a.title,
-    message: a.message,
-    company: a.relatedTo?.label || "—",
-    severity,
-    status: mapStatus(a.status),
-    impact: typeof a.impactScore === "number" ? a.impactScore : 0,
-    detectedAt: a.createdAt,
-    action: a.recommendedAction || "",
-    detail: a.message,
-    riskScore: typeof a.impactScore === "number" ? a.impactScore : 0,
-    aiReason: generateReason(severity),
-  };
-}
+const mapRisk = (level: DealLite["riskLevel"]): "Low" | "Medium" | "High" => {
+  if (level === "low") return "Low";
+  if (level === "medium") return "Medium";
+  return "High"; // collapses "high" and "critical" into High
+};
 
 /* ================= HELPERS ================= */
 
-/* Indian currency formatter — Cr / L / plain rupees.
-   Matches the dashboard so the whole app reads consistently. */
-function formatINR(rupees: number): string {
-  const v = rupees || 0;
-  if (v >= 10_000_000) return "₹" + (v / 10_000_000).toFixed(1) + "Cr";
-  if (v >= 100_000) return "₹" + (v / 100_000).toFixed(1) + "L";
-  return "₹" + v.toLocaleString("en-IN");
-}
+const formatMoney = (v: number) => `₹${(v ?? 0).toLocaleString("en-IN")}`;
 
-function getSeverityStyle(severity: AlertSeverity) {
-  switch (severity) {
-    case "critical":
-      return "bg-red-50 text-red-700 border-red-200";
-    case "watch":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    default:
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  }
-}
+const insightColor = (level: ForecastInsight["level"]) => {
+  if (level === "critical") return "text-red-600";
+  if (level === "warning") return "text-amber-600";
+  if (level === "positive") return "text-emerald-600";
+  return "text-slate-600";
+};
+
+/* ================= GLOBAL UI ================= */
+
+const PageContainer = ({ children }: { children: ReactNode }) => (
+  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+);
+
+const PageHeader = ({ onBack }: { onBack: () => void }) => (
+  <div className="flex justify-between items-center">
+    <button
+      onClick={onBack}
+      className="flex items-center gap-2 text-sm text-slate-500 hover:text-black"
+    >
+      <ArrowLeft size={16} />
+      Back
+    </button>
+  </div>
+);
+
+const Card = ({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    whileHover={{ y: -3 }}
+    className={`rounded-2xl border bg-white shadow-sm p-5 transition ${className}`}
+  >
+    {children}
+  </motion.div>
+);
 
 /* ================= PAGE ================= */
 
-export default function AlertsPage() {
+export default function ForecastPage() {
   const router = useRouter();
 
-  const [alerts, setAlerts] = useState<RevenueAlert[]>([]);
-  const [notifications] = useState<Notification[]>([]);
-  const [showPanel, setShowPanel] = useState(false);
-
+  const [forecast, setForecast] = useState<ForecastResult | null>(null);
+  const [breakdown, setBreakdown] = useState<BreakdownItem[]>([]);
+  const [deals, setDeals] = useState<DealLite[]>([]);
   const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
-
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  /* ================= CLOCK ================= */
+  const [selected, setSelected] = useState<ForecastInsight | null>(null);
 
   useEffect(() => {
-    const i = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(i);
-  }, []);
+    const load = async () => {
+      try {
+        /* Main forecast — real backend engine (weighted pipeline, commit
+           buckets, win rate, hygiene signals, structured insights). */
+        const res = await apiFetch<{ success: boolean; data: ForecastResult }>(
+          "/api/forecast?range=month"
+        );
 
-  /* ================= FETCH (REST polling) ================= */
-
-  const fetchAlerts = useCallback(async () => {
-    try {
-      const res = await apiFetch<{ success: boolean; data: BackendAlert[] }>(
-        "/api/alerts?limit=100&sortOrder=desc"
-      );
-      const raw = Array.isArray(res?.data) ? res.data : [];
-      setAlerts(raw.map(mapBackendAlert));
-      setConnected(true);
-    } catch (err) {
-      console.error("Failed to fetch alerts", err);
-      setConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAlerts();
-    /* Poll every 20s — replaces the old WebSocket stream */
-    const interval = setInterval(fetchAlerts, 20_000);
-    return () => clearInterval(interval);
-  }, [fetchAlerts]);
-
-  /* ================= ACTIONS ================= */
-
-  const updateStatusLocal = (alert: RevenueAlert, status: AlertStatus) => {
-    setAlerts((prev) =>
-      prev.map((a) => (a.id === alert.id ? { ...a, status } : a))
-    );
-  };
-
-  const handleAck = async (a: RevenueAlert) => {
-    updateStatusLocal(a, "acknowledged");
-    toast.success("Acknowledged");
-    try {
-      await apiFetch(`/api/alerts/${a.id}/read`, { method: "PATCH" });
-    } catch {
-      toast.error("Failed to sync");
-    }
-  };
-
-  const handleResolve = async (a: RevenueAlert) => {
-    updateStatusLocal(a, "resolved");
-    toast.success("Resolved");
-    try {
-      await apiFetch(`/api/alerts/${a.id}/resolve`, { method: "PATCH" });
-    } catch {
-      toast.error("Failed to sync");
-    }
-  };
-
-  const handleSnooze = (a: RevenueAlert) => {
-    /* Snooze is client-side only — backend has no snooze concept */
-    const until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-    setAlerts((prev) =>
-      prev.map((al) =>
-        al.id === a.id
-          ? { ...al, status: "snoozed", snoozedUntil: until }
-          : al
-      )
-    );
-
-    toast("Snoozed 30 min");
-  };
-
-  /* ================= FILTER ================= */
-
-  const visibleAlerts = useMemo(() => {
-    return alerts.filter((a) => {
-      if (a.status === "resolved") return false;
-
-      if (a.status === "snoozed") {
-        if (!a.snoozedUntil) return false;
-        return new Date(a.snoozedUntil).getTime() <= now;
+        if (res?.success && res?.data) {
+          setForecast(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load forecast", err);
       }
 
-      return true;
-    });
-  }, [alerts, now]);
+      try {
+        /* Breakdown by stage — drives the chart. */
+        const res = await apiFetch<{ success: boolean; data: BreakdownItem[] }>(
+          "/api/forecast/breakdown?groupBy=stage"
+        );
+        if (res?.success && Array.isArray(res.data)) {
+          setBreakdown(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load breakdown", err);
+      }
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+      try {
+        /* Open deals — drives the Low/Medium/High risk cards.
+           ⚠️ UNVERIFIED ENDPOINT — confirm this matches your real deals route. */
+        const res = await apiFetch<{ success: boolean; data: DealLite[] }>(
+          "/api/deals?status=open"
+        );
+        if (res?.success && Array.isArray(res.data)) {
+          setDeals(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load deals for risk insight", err);
+      }
 
-  /* ================= UI ================= */
+      setLoading(false);
+    };
+
+    load();
+  }, []);
+
+  const summary = forecast?.summary;
+  const metrics = forecast?.metrics;
+  const insights = useMemo(() => forecast?.insights ?? [], [forecast]);
+
+  /* Chart: weighted value per stage (top 5 by weighted value) */
+  const chartData = useMemo(
+    () =>
+      [...breakdown]
+        .sort((a, b) => b.weightedValue - a.weightedValue)
+        .slice(0, 5)
+        .map((b) => ({ name: b.label || b.key, value: b.weightedValue })),
+    [breakdown]
+  );
+
+  /* Risk cards: map Deal schema's riskLevel into RiskInsight's expected shape */
+  const riskDeals = useMemo(
+    () => deals.map((d) => ({ risk: mapRisk(d.riskLevel), value: d.value })),
+    [deals]
+  );
+
+  if (loading) return <div className="p-6">Loading...</div>;
+
+  if (!forecast || !summary || !metrics) {
+    return (
+      <PageContainer>
+        <PageHeader onBack={() => router.push("/dashboard")} />
+        <Card>
+          <p className="text-sm text-slate-500">
+            No forecast data yet. Create deals and move them through your
+            pipeline to see your forecast.
+          </p>
+        </Card>
+      </PageContainer>
+    );
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10 space-y-8">
+    <PageContainer>
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div>
-          <button
-            onClick={() => router.back()}
-            className="flex gap-2 text-sm text-slate-500"
-          >
-            <ArrowLeft size={16} /> Back
-          </button>
+      <PageHeader onBack={() => router.push("/dashboard")} />
 
-          <h1 className="text-3xl font-semibold">Alerts Intelligence</h1>
+      {/* HERO — real weighted forecast */}
+      <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
+        <h1 className="text-4xl font-bold">
+          {formatMoney(summary.weightedForecast)}
+        </h1>
 
-          <p className="text-xs mt-1">
-            {connected ? (
-              <span className="text-emerald-600">● Live</span>
-            ) : (
-              <span className="text-red-500">● Reconnecting...</span>
-            )}
-          </p>
-        </div>
+        <p className="text-white/70 mt-2">
+          Weighted Forecast • Win rate {metrics.winRate}%
+        </p>
 
-        {/* NOTIFICATIONS */}
-        <div className="relative">
-          <button onClick={() => setShowPanel((p) => !p)}>
-            <Bell size={20} />
-
-            {unreadCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1 rounded">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-
-          <AnimatePresence>
-            {showPanel && (
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 6 }}
-                className="absolute right-0 mt-3 w-72 bg-white border rounded-xl shadow-lg p-3 z-50"
-              >
-                {notifications.length === 0 ? (
-                  <div className="p-2 text-sm text-slate-400">
-                    No notifications
-                  </div>
-                ) : (
-                  notifications.map((n) => (
-                    <div key={n._id} className="p-2 text-sm">
-                      {n.title}
-                    </div>
-                  ))
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      {/* METRICS */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <MetricCard
-          title="Critical"
-          value={String(
-            visibleAlerts.filter((a) => a.severity === "critical").length
-          )}
-        />
-        <MetricCard
-          title="Watch"
-          value={String(
-            visibleAlerts.filter((a) => a.severity === "watch").length
-          )}
-        />
-        <MetricCard
-          title="Revenue Risk"
-          value={formatINR(
-            visibleAlerts.reduce((s, a) => s + a.impact, 0)
-          )}
-        />
-      </div>
-
-      {/* LIST */}
-      <div className="border rounded-xl bg-white divide-y">
-        {loading ? (
-          <div className="p-10 text-center">Connecting...</div>
-        ) : visibleAlerts.length === 0 ? (
-          <div className="p-10 text-center text-slate-400 text-sm">
-            No active alerts
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
+          <div>
+            <p className="text-white/60">Pipeline</p>
+            <p>{formatMoney(summary.totalPipelineValue)}</p>
           </div>
-        ) : (
-          visibleAlerts.map((alert) => (
-            <div key={alert.id} className="p-4 flex justify-between">
-              <div>
-                <p className="font-medium">{alert.title}</p>
+          <div>
+            <p className="text-white/60">Commit</p>
+            <p>{formatMoney(summary.commitForecast)}</p>
+          </div>
+          <div>
+            <p className="text-white/60">Best Case</p>
+            <p>{formatMoney(summary.bestCaseForecast)}</p>
+          </div>
+          <div>
+            <p className="text-white/60">Open Deals</p>
+            <p>{metrics.openDeals}</p>
+          </div>
+        </div>
+      </Card>
 
-                <span
-                  className={`text-xs px-2 py-0.5 rounded border ${getSeverityStyle(
-                    alert.severity
-                  )}`}
-                >
-                  {alert.severity}
-                </span>
-
-                <p className="text-sm">{alert.message}</p>
-
-                <p className="text-xs text-slate-400">
-                  AI Score: {alert.riskScore}
-                </p>
-
-                {alert.aiReason && (
-                  <p className="text-xs text-slate-400">
-                    {alert.aiReason}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-col items-end gap-2">
-                <p>{formatINR(alert.impact)}</p>
-
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={() => handleAck(alert)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    Ack
-                  </button>
-                  <button
-                    onClick={() => handleSnooze(alert)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    Snooze
-                  </button>
-                  <button
-                    onClick={() => handleResolve(alert)}
-                    className="bg-black text-white px-2 py-1 rounded"
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
+      {/* KEY METRICS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <Card>
+          <p className="text-xs text-slate-500">Pipeline Health</p>
+          <p className="mt-1 text-lg font-semibold">
+            {Math.round(metrics.pipelineHealth * 100)}%
+          </p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Conversion</p>
+          <p className="mt-1 text-lg font-semibold">{metrics.conversionRate}%</p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Overdue</p>
+          <p className="mt-1 text-lg font-semibold text-red-500">
+            {metrics.overdueDeals}
+          </p>
+        </Card>
+        <Card>
+          <p className="text-xs text-slate-500">Stalled</p>
+          <p className="mt-1 text-lg font-semibold text-amber-500">
+            {metrics.stalledDeals}
+          </p>
+        </Card>
       </div>
-    </div>
+
+      {/* CHART + RISK */}
+      <div className="grid xl:grid-cols-2 gap-6">
+        <Card>
+          <h3 className="text-sm font-semibold mb-4">Weighted Forecast by Stage</h3>
+          <RevenueChart data={chartData} />
+        </Card>
+
+        <Card>
+          <RiskInsight deals={riskDeals} />
+        </Card>
+      </div>
+
+      {/* INSIGHTS — real structured insights from the engine */}
+      <Card>
+        <h3 className="font-semibold mb-3">Forecast Insights</h3>
+        <div className="space-y-3">
+          {insights.map((ins, idx) => (
+            <div
+              key={idx}
+              onClick={() => ins.reasoning && setSelected(ins)}
+              className={`p-3 rounded-lg border ${
+                ins.reasoning ? "cursor-pointer hover:bg-slate-50" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className={`text-sm font-medium ${insightColor(ins.level)}`}>
+                  {ins.message}
+                </p>
+                {ins.reasoning && <ArrowRight size={14} className="text-slate-400" />}
+              </div>
+              <p className="text-[11px] text-slate-400 uppercase mt-1">
+                {ins.category} • {ins.level}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* INSIGHT REASONING MODAL */}
+      <AnimatePresence>
+        {selected && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+            onClick={() => setSelected(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white p-6 rounded-xl w-96"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className={`font-semibold text-lg ${insightColor(selected.level)}`}>
+                {selected.message}
+              </h2>
+
+              <div className="mt-3 text-sm text-slate-600 space-y-1">
+                {(selected.reasoning ?? []).map((r, i) => (
+                  <p key={i}>• {r}</p>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    </PageContainer>
   );
 }
