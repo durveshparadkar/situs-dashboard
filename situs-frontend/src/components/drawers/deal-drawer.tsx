@@ -6,7 +6,13 @@ import toast from "react-hot-toast";
 import DrawerShell from "./shared/drawer-shell";
 import { apiFetch } from "@/lib/api";
 
-import { createDeal, updateDeal, type BackendDeal } from "../../lib/intelligence/deals.api";
+import {
+  createDeal,
+  updateDeal,
+  getDefaultPipeline,
+  type BackendDeal,
+  type BackendPipeline,
+} from "../../lib/intelligence/deals.api";
 
 /* ================= TYPES ================= */
 
@@ -34,6 +40,10 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
   const [value, setValue] = useState("");
   const [probability, setProbability] = useState("");
 
+  const [pipeline, setPipeline] = useState<BackendPipeline | null>(null);
+  const [stageId, setStageId] = useState("");
+  const [pipelineLoading, setPipelineLoading] = useState(true);
+
   const [composer, setComposer] = useState<"email" | "meeting" | null>(null);
 
   const [emailMessage, setEmailMessage] = useState("");
@@ -41,6 +51,25 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingTime, setMeetingTime] = useState("");
+
+  /* ================= LOAD PIPELINE (once) ================= */
+
+  useEffect(() => {
+    const loadPipeline = async () => {
+      try {
+        const p = await getDefaultPipeline();
+        setPipeline(p);
+        if (p?.stages?.length) {
+          setStageId(p.stages[0]._id);
+        }
+      } catch (err) {
+        console.error("Failed to load pipeline:", err);
+      } finally {
+        setPipelineLoading(false);
+      }
+    };
+    loadPipeline();
+  }, []);
 
   /* ================= SYNC ================= */
 
@@ -68,9 +97,17 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
   const val = Math.max(0, Number(value) || 0);
   const weighted = Math.round((val * prob) / 100);
 
+  function handleStageChange(id: string) {
+    setStageId(id);
+    const stage = pipeline?.stages.find((s) => s._id === id);
+    if (stage && typeof stage.probability === "number") {
+      setProbability(String(stage.probability));
+    }
+  }
+
   /* ================= SAVE =================
      Routes through backend deals API:
-     - Create: POST /api/deals (auto-resolves default pipeline + first stage)
+     - Create: POST /api/deals (now passes pipelineId + stageId)
      - Update: PATCH /api/deals/:id */
 
   async function handleSave() {
@@ -84,6 +121,7 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           title,
           value: val,
           probability: prob,
+          ...(stageId && { stageId }),
         });
 
         onUpdate(updated);
@@ -94,6 +132,8 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           title,
           value:       val,
           probability: prob,
+          ...(pipeline?._id && { pipelineId: pipeline._id }),
+          ...(stageId && { stageId }),
         });
 
         onUpdate(created);
@@ -212,6 +252,24 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           <SectionTitle>Deal Details</SectionTitle>
 
           <Input label="Title" value={title} onChange={setTitle} />
+
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Stage</p>
+            <select
+              value={stageId}
+              onChange={(e) => handleStageChange(e.target.value)}
+              disabled={pipelineLoading || !pipeline}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-black/10"
+            >
+              {pipelineLoading && <option>Loading stages…</option>}
+              {!pipelineLoading && !pipeline && <option>No pipeline found</option>}
+              {pipeline?.stages.map((s) => (
+                <option key={s._id} value={s._id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Input label="Value" type="number" value={value} onChange={setValue} />
