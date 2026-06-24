@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 
-// 🔥 Proper typing (no any, no warning)
 type Props = {
   onCloseAction: () => void;
   onCreatedAction: (deal: unknown) => void;
+};
+
+type Stage = {
+  _id: string;
+  name: string;
+  probability?: number;
+};
+
+type Pipeline = {
+  _id: string;
+  name: string;
+  stages: Stage[];
 };
 
 export default function AddDealModal({
@@ -18,8 +29,46 @@ export default function AddDealModal({
   const [probability, setProbability] = useState("50");
   const [loading, setLoading] = useState(false);
 
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null);
+  const [stageId, setStageId] = useState("");
+  const [pipelineLoading, setPipelineLoading] = useState(true);
+
+  useEffect(() => {
+    const loadPipeline = async () => {
+      try {
+        const json = await apiFetch<{ success: boolean; data: Pipeline }>(
+  "/api/pipelines/default"
+);
+        if (json.success && json.data) {
+          setPipeline(json.data);
+          // Default to the first stage, and pre-fill probability from it
+          const first = json.data.stages?.[0];
+          if (first) {
+            setStageId(first._id);
+            if (typeof first.probability === "number") {
+              setProbability(String(first.probability));
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load pipeline stages:", err);
+      } finally {
+        setPipelineLoading(false);
+      }
+    };
+    loadPipeline();
+  }, []);
+
+  function handleStageChange(id: string) {
+    setStageId(id);
+    const stage = pipeline?.stages.find((s) => s._id === id);
+    if (stage && typeof stage.probability === "number") {
+      setProbability(String(stage.probability));
+    }
+  }
+
   async function handleSubmit() {
-    if (!title || !value) return;
+    if (!title || !value || !stageId || !pipeline) return;
 
     setLoading(true);
 
@@ -30,6 +79,8 @@ export default function AddDealModal({
           title,
           value: Number(value),
           probability: Number(probability),
+          stageId,
+          pipelineId: pipeline._id,
         }),
       });
 
@@ -66,6 +117,21 @@ export default function AddDealModal({
             className="w-full border rounded-lg px-3 py-2 text-sm"
           />
 
+          <select
+            value={stageId}
+            onChange={(e) => handleStageChange(e.target.value)}
+            disabled={pipelineLoading || !pipeline}
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+          >
+            {pipelineLoading && <option>Loading stages…</option>}
+            {!pipelineLoading && !pipeline && <option>No pipeline found</option>}
+            {pipeline?.stages.map((s) => (
+              <option key={s._id} value={s._id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+
           <input
             placeholder="Probability (%)"
             value={probability}
@@ -86,7 +152,7 @@ export default function AddDealModal({
 
           <button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !stageId}
             className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg"
           >
             {loading ? "Saving..." : "Create"}
