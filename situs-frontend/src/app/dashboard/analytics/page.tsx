@@ -208,7 +208,7 @@ export default function AnalyticsPage() {
             const height = (r.revenue / maxRevenue) * 100;
 
             return (
-              <div key={i} className="flex-1 flex flex-col items-center">
+              <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
                 <motion.div
                   initial={{ height: 0 }}
                   animate={{ height: `${height}%` }}
