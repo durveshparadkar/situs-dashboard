@@ -105,15 +105,33 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
     }
   }
 
+  /**
+   * Maps the selected stage's isWon/isLost flags to the deal's status
+   * field. Moving a deal into a "won" or "lost" stage in the dropdown
+   * doesn't automatically flip status on the backend — that's a
+   * separate field the model uses for revenue/forecast aggregations.
+   * Without this, deals visually sit in "Won" but never count as
+   * closed revenue (analytics revenue trend stays empty).
+   */
+  function resolveStatus(): "won" | "lost" | undefined {
+    const stage = pipeline?.stages.find((s) => s._id === stageId);
+    if (!stage) return undefined;
+    if (stage.isWon) return "won";
+    if (stage.isLost) return "lost";
+    return undefined;
+  }
+
   /* ================= SAVE =================
      Routes through backend deals API:
-     - Create: POST /api/deals (now passes pipelineId + stageId)
+     - Create: POST /api/deals (now passes pipelineId + stageId + status)
      - Update: PATCH /api/deals/:id */
 
   async function handleSave() {
     if (!title.trim()) return toast.error("Title required");
 
     setLoading(true);
+
+    const status = resolveStatus();
 
     try {
       if (isEdit && deal?._id) {
@@ -122,6 +140,7 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           value: val,
           probability: prob,
           ...(stageId && { stageId }),
+          ...(status && { status }),
         });
 
         onUpdate(updated);
