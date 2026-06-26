@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 /* ================= NAV ================= */
 
@@ -45,9 +46,43 @@ const sections = [
   },
 ];
 
+/* ================= USER PROFILE TYPE ================= */
+
+type UserProfile = {
+  fullName?: string;
+  email: string;
+  role?: string;
+};
+
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
+
+  const [user, setUser] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const res = await apiFetch<{ success: boolean; data: UserProfile }>(
+          "/api/auth/me"
+        );
+        if (res?.success && res?.data) {
+          setUser(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load user profile:", err);
+      }
+    };
+    loadProfile();
+  }, []);
+
+  /* Derive display name + initial from real user data, falling back
+     gracefully if fullName isn't set (e.g. legacy accounts) */
+  const displayName = user?.fullName?.trim() || user?.email?.split("@")[0] || "User";
+  const initial = displayName.charAt(0).toUpperCase();
+  const roleLabel = user?.role
+    ? user.role.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    : "Member";
 
   return (
     <aside
@@ -138,13 +173,13 @@ export default function Sidebar() {
           }`}
         >
           <div className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center text-xs font-semibold">
-            D
+            {initial}
           </div>
 
           {!collapsed && (
             <div className="text-xs leading-tight">
-              <p className="font-medium text-slate-900">Durvesh</p>
-              <p className="text-slate-500">Founder</p>
+              <p className="font-medium text-slate-900">{displayName}</p>
+              <p className="text-slate-500">{roleLabel}</p>
             </div>
           )}
         </div>
