@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -37,6 +36,12 @@ interface BackendAlert {
 type AlertsResponse = { data?: BackendAlert[] };
 type UnreadResponse = { data?: { count?: number } | number; count?: number };
 
+type UserProfile = {
+  fullName?: string;
+  email: string;
+  role?: string;
+};
+
 export default function Topbar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -49,9 +54,36 @@ export default function Topbar() {
   const [alerts, setAlerts] = useState<BackendAlert[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const [user, setUser] = useState<UserProfile | null>(null);
+
   const pageTitle =
     Object.keys(pageTitles).find((p) => pathname.startsWith(p)) ||
     "/dashboard";
+
+  /* ================= LOAD USER PROFILE ================= */
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const res = await apiFetch<{ success: boolean; data: UserProfile }>(
+          "/api/auth/me"
+        );
+        if (res?.success && res?.data) {
+          setUser(res.data);
+        }
+      } catch (err) {
+        console.error("Failed to load user profile:", err);
+      }
+    };
+    loadProfile();
+  }, []);
+
+  const displayName =
+    user?.fullName?.trim() || user?.email?.split("@")[0] || "User";
+  const initial = displayName.charAt(0).toUpperCase();
+  const roleLabel = user?.role
+    ? user.role.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    : "Member";
 
   /* ================= LOAD ALERTS ================= */
 
@@ -234,7 +266,7 @@ useEffect(() => {
               onClick={() => setUserOpen((p) => !p)}
               className="h-8 w-8 rounded-full bg-black text-white flex items-center justify-center text-xs font-semibold"
             >
-              D
+              {initial}
             </button>
 
             <AnimatePresence>
@@ -246,8 +278,8 @@ useEffect(() => {
                   className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg z-50 overflow-hidden"
                 >
                   <div className="px-4 py-3 border-b">
-                    <p className="text-xs font-semibold text-slate-900">Durvesh</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Admin</p>
+                    <p className="text-xs font-semibold text-slate-900">{displayName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{roleLabel}</p>
                   </div>
 
                   <button
