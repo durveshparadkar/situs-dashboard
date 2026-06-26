@@ -13,6 +13,7 @@ interface RegisterInput {
   email: string;
   password: string;
   organizationName?: string;
+  fullName?: string;
 }
 
 interface LoginInput {
@@ -157,11 +158,12 @@ class AuthService {
            The role string field is what auth.middleware.ts reads to
            determine permissions — without it, every user defaults to
            "USER" which can't create deals or access intelligence. */
-     const [user] = await User.create(
+const [user] = await User.create(
   [
     {
       email,
       password:       input.password,
+      fullName:       input.fullName?.trim() || "",
       organizationId: org._id,
       roleId:         role._id,
       role:           "ORG_ADMIN",

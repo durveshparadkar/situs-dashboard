@@ -4,6 +4,7 @@ import mongoose, {
   HydratedDocument,
   Model,
 } from "mongoose";
+import bcrypt from "bcryptjs";
 
 /* =====================================================
    TYPES
@@ -11,6 +12,7 @@ import mongoose, {
 
 export interface IUser {
   email: string;
+  fullName?: string;
   password: string;
 
   organizationId: Types.ObjectId;
@@ -49,6 +51,12 @@ const userSchema = new Schema<IUser>(
       lowercase: true,
       trim: true,
       index: true,
+    },
+
+    fullName: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     password: {
@@ -127,20 +135,27 @@ userSchema.index({ organizationId: 1, roleId: 1 });
 userSchema.index({ organizationId: 1, managerId: 1 });
 
 /* =====================================================
-   🧠 NORMALIZATION
+   🧠 NORMALIZATION + 🔐 PASSWORD HASHING
+   CRITICAL: password must be hashed here before save. Without this,
+   passwords are stored in plaintext and comparePassword() (which uses
+   bcrypt.compare against a real hash) always fails — this was the
+   root cause of "Invalid credentials" on every login attempt.
 ===================================================== */
 
-userSchema.pre("save", function () {
+userSchema.pre("save", async function () {
   if (this.email) {
     this.email = this.email.trim().toLowerCase();
+  }
+
+  if (this.isModified("password")) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
   }
 });
 
 /* =====================================================
    🔐 PASSWORD COMPARISON METHOD
 ===================================================== */
-
-import bcrypt from "bcryptjs";
 
 userSchema.methods.comparePassword = async function (
   candidatePassword: string

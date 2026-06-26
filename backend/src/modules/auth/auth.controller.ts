@@ -239,6 +239,9 @@ class AuthController {
     ...(parsed.data.organizationName !== undefined && {
       organizationName: parsed.data.organizationName,
     }),
+    ...(parsed.data.fullName !== undefined && {
+      fullName: parsed.data.fullName,
+    }),
   })
 );
 
