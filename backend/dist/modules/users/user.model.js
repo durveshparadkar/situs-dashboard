@@ -1,4 +1,6 @@
-import mongoose, { Schema, } from "mongoose";
+import mongoose, { Schema } from "mongoose";
+import bcrypt from "bcryptjs";
+
 /* =====================================================
    SCHEMA
 ===================================================== */
@@ -57,30 +59,43 @@ const userSchema = new Schema({
 }, {
     timestamps: true,
 });
+
 /* =====================================================
    🔒 UNIQUE CONSTRAINT (MULTI-TENANT SAFE)
 ===================================================== */
 userSchema.index({ email: 1, organizationId: 1 }, { unique: true });
+
 /* =====================================================
    ⚡ PERFORMANCE INDEXES
 ===================================================== */
 userSchema.index({ organizationId: 1, roleId: 1 });
 userSchema.index({ organizationId: 1, managerId: 1 });
+
 /* =====================================================
-   🧠 NORMALIZATION
+   🧠 NORMALIZATION + 🔐 PASSWORD HASHING
+   CRITICAL: password is hashed here before save. Without this,
+   passwords are stored in plaintext and comparePassword() (which
+   uses bcrypt.compare against a real hash) always fails — this was
+   the root cause of "Invalid credentials" on every login attempt.
 ===================================================== */
-userSchema.pre("save", function () {
+userSchema.pre("save", async function () {
     if (this.email) {
         this.email = this.email.trim().toLowerCase();
     }
+
+    if (this.isModified("password")) {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+    }
 });
+
 /* =====================================================
    🔐 PASSWORD COMPARISON METHOD
 ===================================================== */
-import bcrypt from "bcryptjs";
 userSchema.methods.comparePassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
+
 /* =====================================================
    🛡️ GLOBAL SAFE TRANSFORM
    (REMOVES SENSITIVE FIELDS)
@@ -93,6 +108,7 @@ userSchema.set("toJSON", {
     },
     virtuals: true,
 });
+
 /* =====================================================
    🧱 STATIC HELPERS (ENTERPRISE)
 ===================================================== */
@@ -102,10 +118,11 @@ userSchema.statics.findByEmailAndOrg = function (email, organizationId) {
         organizationId,
     }).select("+password");
 };
+
 /* =====================================================
    MODEL
 ===================================================== */
 const User = mongoose.models.User ||
     mongoose.model("User", userSchema);
+
 export default User;
-//# sourceMappingURL=user.model.js.map
