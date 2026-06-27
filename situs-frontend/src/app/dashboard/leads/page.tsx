@@ -331,13 +331,18 @@ export default function LeadsPage() {
 );
 
   if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto p-6 animate-pulse space-y-6">
-        <div className="h-10 w-60 bg-slate-200 rounded" />
-        <div className="h-64 bg-slate-200 rounded-xl" />
+  return (
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
+        <div className="h-8 w-8 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+        <p className="text-sm text-slate-500">Loading leads…</p>
+        <p className="text-xs text-slate-400">
+          This can take up to a minute on first load
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   return (
     <>
