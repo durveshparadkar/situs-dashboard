@@ -320,14 +320,15 @@ export default function LeadsPage() {
   }, [leads, search, sortHigh]);
 
   const metrics = useMemo(
-    () => ({
-      total: processedLeads.length,
-      qualified: processedLeads.filter((lead) => (lead.probability ?? 0) >= 50)
-        .length,
-      pipeline: processedLeads.reduce((sum, lead) => sum + lead.budget, 0),
-    }),
-    [processedLeads]
-  );
+  () => ({
+    total: processedLeads.length,
+    qualified: processedLeads.filter(
+      (lead) => lead.brainPriority === "high" || lead.brainPriority === "critical"
+    ).length,
+    pipeline: processedLeads.reduce((sum, lead) => sum + lead.budget, 0),
+  }),
+  [processedLeads]
+);
 
   if (loading) {
     return (
