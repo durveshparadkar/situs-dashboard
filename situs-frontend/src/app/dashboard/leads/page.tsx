@@ -28,9 +28,7 @@ const Card = ({
   children: ReactNode;
   className?: string;
 }) => (
-  <div
-    className={ `rounded-xl border bg-white shadow-sm p-5 ${className}` }
-  >
+  <div className={`rounded-xl border shadow-sm p-5 ${className}`}>
     {children}
   </div>
 );
@@ -320,29 +318,29 @@ export default function LeadsPage() {
   }, [leads, search, sortHigh]);
 
   const metrics = useMemo(
-  () => ({
-    total: processedLeads.length,
-    qualified: processedLeads.filter(
-      (lead) => lead.brainPriority === "high" || lead.brainPriority === "critical"
-    ).length,
-    pipeline: processedLeads.reduce((sum, lead) => sum + lead.budget, 0),
-  }),
-  [processedLeads]
-);
+    () => ({
+      total: processedLeads.length,
+      qualified: processedLeads.filter(
+        (lead) => lead.brainPriority === "high" || lead.brainPriority === "critical"
+      ).length,
+      pipeline: processedLeads.reduce((sum, lead) => sum + lead.budget, 0),
+    }),
+    [processedLeads]
+  );
 
   if (loading) {
-  return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <div className="h-8 w-8 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
-        <p className="text-sm text-slate-500">Loading leads…</p>
-        <p className="text-xs text-slate-400">
-          This can take up to a minute on first load
-        </p>
+    return (
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <div className="h-8 w-8 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+          <p className="text-sm text-slate-500">Loading leads…</p>
+          <p className="text-xs text-slate-400">
+            This can take up to a minute on first load
+          </p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   return (
     <>
@@ -399,18 +397,18 @@ export default function LeadsPage() {
         </Card>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card>
+          <Card className="bg-white">
             <MetricCard title="Total Leads" value={metrics.total.toString()} />
           </Card>
-          <Card>
+          <Card className="bg-white">
             <MetricCard title="Qualified" value={metrics.qualified.toString()} />
           </Card>
-          <Card>
+          <Card className="bg-white">
             <MetricCard title="Pipeline Value" value={money(metrics.pipeline)} />
           </Card>
         </div>
 
-        <Card>
+        <Card className="bg-white">
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
               placeholder="Search leads..."
@@ -427,7 +425,7 @@ export default function LeadsPage() {
           </div>
         </Card>
 
-        <Card className="p-0 overflow-hidden">
+        <Card className="bg-white p-0 overflow-hidden">
           {processedLeads.length === 0 ? (
             <div className="text-center py-20 text-slate-500 text-sm">
               No leads found
