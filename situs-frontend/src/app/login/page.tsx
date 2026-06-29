@@ -49,6 +49,16 @@ export default function LoginPage() {
     return () => clearInterval(interval);
   }, []);
 
+useEffect(() => {
+  /* Wake up the backend immediately on page load — Render's free tier
+     spins down on inactivity, so the first real request (login) would
+     otherwise wait through a 30-50s cold start. Pinging /health here
+     means the server is already warming up while the user types. */
+  fetch("https://api.situsrevenue.com/health").catch(() => {
+    /* best-effort — ignore failures, this is just a warm-up ping */
+  });
+}, []);
+
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       setError("Please fill all fields");
