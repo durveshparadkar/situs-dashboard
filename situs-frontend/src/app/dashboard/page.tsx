@@ -14,8 +14,6 @@ import FocusMode from "../../components/dashboard/focus-mode";
 import DealDrawer from "../../components/drawers/deal-drawer";
 import RevenueForecast from "../../components/dashboard/revenue-forecast";
 
-/* 🎯 BACKEND INTELLIGENCE API
-   All scoring now happens on the backend — single fetch, fully composed result. */
 import {
   getIntelligenceSummary,
   refreshIntelligence,
@@ -25,7 +23,7 @@ import {
 /* ================= GLOBAL UI ================= */
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
-  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+  <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
 );
 
 const Card = ({
@@ -36,10 +34,11 @@ const Card = ({
   className?: string;
 }) => (
   <motion.div
-    initial={{ opacity: 0, y: 8 }}
+    initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
-    whileHover={{ y: -3 }}
-    className={`rounded-2xl border bg-white shadow-sm p-5 transition ${className}`}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    whileHover={{ y: -2 }}
+    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
   >
     {children}
   </motion.div>
@@ -156,8 +155,6 @@ function formatINR(rupees: number): string {
 }
 
 /* ================= SIGNAL MAPPERS ================= */
-/* Convert backend engine output into the dashboard's Signal shape.
-   Backend produces structured results; UI wants flat signals sorted by priority. */
 
 function mapBackendPriorityToSignal(
   priority: "low" | "medium" | "high" | "critical"
@@ -171,7 +168,6 @@ function mapBackendPriorityToSignal(
 function buildSignalsFromIntelligence(intel: IntelligenceSummary): Omit<Signal, "timestamp">[] {
   const list: Omit<Signal, "timestamp">[] = [];
 
-  // Attention alerts — "deals requiring attention" today
   intel.attentionAlerts.forEach((a, i) => {
     list.push({
       id: "alert-" + (a.dealId ?? i),
@@ -184,7 +180,6 @@ function buildSignalsFromIntelligence(intel: IntelligenceSummary): Omit<Signal, 
     });
   });
 
-  // Pipeline leaks — structural issues
   intel.pipelineLeaks.leaks.forEach((l, i) => {
     list.push({
       id: "leak-" + i,
@@ -197,7 +192,6 @@ function buildSignalsFromIntelligence(intel: IntelligenceSummary): Omit<Signal, 
     });
   });
 
-  // Revenue actions — "what to do today"
   intel.actions.topActions.forEach((a) => {
     const isOpp = a.type === "opportunity" || a.type === "quick_win";
     list.push({
@@ -211,7 +205,6 @@ function buildSignalsFromIntelligence(intel: IntelligenceSummary): Omit<Signal, 
     });
   });
 
-  // Forecast risk hero signal
   if (intel.forecast.summary.totalRevenueAtRisk > 0) {
     list.push({
       id: "forecast",
@@ -230,7 +223,6 @@ function buildSignalsFromIntelligence(intel: IntelligenceSummary): Omit<Signal, 
 }
 
 /* ================= UI DEAL MAPPER ================= */
-/* Backend dealRisks → UIDeal shape the FocusMode/DealsAttentionTable expects */
 
 function mapToUIDeals(intel: IntelligenceSummary): UIDeal[] {
   return intel.dealRisks
@@ -244,7 +236,6 @@ function mapToUIDeals(intel: IntelligenceSummary): UIDeal[] {
 }
 
 /* ================= METRIC AGGREGATORS ================= */
-/* Pull dashboard headline metrics from the orchestrator output */
 
 function getMetrics(intel: IntelligenceSummary): {
   pipeline:     string;
@@ -259,7 +250,7 @@ function getMetrics(intel: IntelligenceSummary): {
 
   return {
     pipeline:    formatINR(pipeline),
-    revenue:     formatINR(weighted), // weighted = probability-adjusted forecast
+    revenue:     formatINR(weighted),
     atRisk:      formatINR(atRisk),
     escalations: String(escalations),
   };
@@ -282,9 +273,6 @@ export default function DashboardPage() {
 
     async function fetchIntelligence() {
       try {
-        // Fire a real intelligence run once on load — this writes risk
-        // scores AND emits alerts (summary alone is a dry-run preview).
-        // Wrapped so a refresh failure never blocks the dashboard render.
         try {
           await refreshIntelligence();
         } catch (refreshErr) {
@@ -359,19 +347,27 @@ export default function DashboardPage() {
       ? "Immediate attention required"
       : pulseStatus === "watch"
       ? "Early warning signals detected"
-      : "Pipeline healthy";
+      : "Pipeline healthy — no action needed right now";
 
   /* ================= LOADING ================= */
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto p-6 space-y-6 animate-pulse">
-        <div className="h-8 w-64 bg-slate-200 rounded" />
-        <div className="grid grid-cols-4 gap-6">
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-7 w-48 bg-slate-200 rounded-md" />
+          <div className="h-4 w-72 bg-slate-100 rounded-md" />
+        </div>
+        <div className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-slate-200 rounded-xl" />
+            <div
+              key={i}
+              className="h-24 bg-slate-100 rounded-2xl animate-pulse"
+            />
           ))}
         </div>
+        <div className="h-40 bg-slate-100 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -380,13 +376,13 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto p-6">
-        <Card className="border-red-200 bg-red-50">
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <Card className="border-red-200 bg-red-50/60">
           <h2 className="text-lg font-semibold text-red-700">
             Unable to load intelligence
           </h2>
-          <p className="text-sm text-red-600 mt-2">{error}</p>
-          <p className="text-xs text-red-500 mt-3">
+          <p className="text-sm text-red-600 mt-1.5">{error}</p>
+          <p className="text-xs text-red-500/80 mt-3">
             Check that the backend is running and you&apos;re signed in.
           </p>
         </Card>
@@ -396,9 +392,6 @@ export default function DashboardPage() {
 
   /* ================= UI ================= */
 
-  /* Find a pipeline-leak signal to display as the amber alert at the bottom.
-     This replaces the old pipelineIntelligenceEngine?.pipelineLeakSignal logic
-     using the orchestrator's structured leak data. */
   const headlineLeak = intel?.pipelineLeaks.leaks[0] ?? null;
 
   return (
@@ -408,14 +401,15 @@ export default function DashboardPage() {
         {/* HEADER */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-semibold">Dashboard</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+              Dashboard
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
               AI-powered revenue overview
             </p>
           </div>
 
-          {/* ✅ FIXED mounted usage */}
-          <div className="text-xs font-mono bg-slate-100 border px-3 py-1.5 rounded-md">
+          <div className="text-xs font-mono text-slate-500 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
             {mounted ? new Date(now).toLocaleTimeString() : "--:--"}
           </div>
         </div>
@@ -425,8 +419,8 @@ export default function DashboardPage() {
           <RevenuePulse status={pulseStatus} message={pulseMessage} />
         </Card>
 
-        {/* METRICS — sourced from orchestrator */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* METRICS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <Card><MetricCard title="Pipeline" value={metrics.pipeline} /></Card>
           <Card><MetricCard title="Revenue" value={metrics.revenue} /></Card>
           <Card><MetricCard title="At Risk" value={metrics.atRisk} /></Card>
@@ -439,19 +433,20 @@ export default function DashboardPage() {
         </Card>
 
         {/* SIGNALS */}
-        {/* SIGNALS */}
-<div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-  {signals.slice(0, 6).map((s) => (
-    <AISignalCard
-      key={s.id}
-      {...s}
-      timestamp={getSignalAge(s.timestamp)}
-    />
-  ))}
-</div>
+        {signals.length > 0 && (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {signals.slice(0, 6).map((s) => (
+              <AISignalCard
+                key={s.id}
+                {...s}
+                timestamp={getSignalAge(s.timestamp)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* CHART + FORECAST */}
-        <div className="grid lg:grid-cols-2 gap-6">
+        <div className="grid lg:grid-cols-2 gap-5">
           <Card><PipelineHealthChart /></Card>
           <Card>
             <RevenueForecast
@@ -480,10 +475,10 @@ export default function DashboardPage() {
           <DealsAttentionTable deals={uiDeals} onDealClickAction={setSelectedDeal} />
         </Card>
 
-        {/* PIPELINE LEAK ALERT — replaces old pipelineIntelligenceEngine signal */}
+        {/* PIPELINE LEAK ALERT */}
         {headlineLeak && (
-          <Card>
-            <p className="text-sm text-amber-600">
+          <Card className="border-amber-200 bg-amber-50/50">
+            <p className="text-sm text-amber-700">
               {headlineLeak.message}
             </p>
           </Card>
