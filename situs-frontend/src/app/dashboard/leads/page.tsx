@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { ArrowLeft, Plus, ArrowRight, Upload, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -17,7 +18,7 @@ import {
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
-    <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
   </div>
 );
 
@@ -28,9 +29,15 @@ const Card = ({
   children: ReactNode;
   className?: string;
 }) => (
-  <div className={`rounded-xl border shadow-sm p-5 ${className}`}>
+  <motion.div
+    initial={{ opacity: 0, y: 6 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    whileHover={{ y: -2 }}
+    className={`rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
+  >
     {children}
-  </div>
+  </motion.div>
 );
 
 export type Lead = {
@@ -328,16 +335,26 @@ export default function LeadsPage() {
     [processedLeads]
   );
 
+  /* ================= LOADING ================= */
+
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <div className="h-8 w-8 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
-          <p className="text-sm text-slate-500">Loading leads…</p>
-          <p className="text-xs text-slate-400">
-            This can take up to a minute on first load
-          </p>
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-7 w-40 bg-slate-200 rounded-md" />
+          <div className="h-4 w-64 bg-slate-100 rounded-md" />
         </div>
+        <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...Array(3)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -349,12 +366,14 @@ export default function LeadsPage() {
           <div>
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-sm text-slate-500 mb-2"
+              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
             >
               <ArrowLeft size={16} /> Back
             </button>
-            <h1 className="text-2xl font-semibold">Leads</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+              Leads
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
               Track potential customers from first touch to qualification
             </p>
           </div>
@@ -362,7 +381,7 @@ export default function LeadsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowImport(true)}
-              className="flex items-center justify-center gap-2 border border-slate-300 px-4 py-2 rounded-lg text-sm"
+              className="flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
               <Upload size={16} />
               Import
@@ -381,7 +400,7 @@ export default function LeadsPage() {
                   })
                 )
               }
-              className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm"
+              className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-800 active:scale-[0.98] transition"
             >
               <Plus size={16} />
               Add Lead
@@ -390,13 +409,13 @@ export default function LeadsPage() {
         </div>
 
         <Card className="bg-slate-950 text-white border-none">
-          <h2 className="text-3xl font-bold">{money(metrics.pipeline)}</h2>
-          <p className="text-white/70 mt-2">
-            Pipeline value - {metrics.total} leads
+          <h2 className="text-3xl font-bold tracking-tight">{money(metrics.pipeline)}</h2>
+          <p className="text-white/70 mt-2 text-sm">
+            Pipeline value • {metrics.total} lead{metrics.total === 1 ? "" : "s"}
           </p>
         </Card>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <Card className="bg-white">
             <MetricCard title="Total Leads" value={metrics.total.toString()} />
           </Card>
@@ -414,11 +433,11 @@ export default function LeadsPage() {
               placeholder="Search leads..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
             />
             <button
               onClick={() => setSortHigh((current) => !current)}
-              className="px-4 py-2 border rounded-lg text-sm"
+              className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
             >
               {sortHigh ? "High to Low" : "Low to High"}
             </button>
@@ -427,13 +446,20 @@ export default function LeadsPage() {
 
         <Card className="bg-white p-0 overflow-hidden">
           {processedLeads.length === 0 ? (
-            <div className="text-center py-20 text-slate-500 text-sm">
-              No leads found
+            <div className="text-center py-20 text-sm">
+              <p className="text-slate-500">
+                {search ? "No leads match your search" : "No leads yet"}
+              </p>
+              {!search && (
+                <p className="text-slate-400 text-xs mt-1">
+                  Add your first lead or import from a spreadsheet
+                </p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[920px] text-sm">
-                <thead className="text-left text-slate-500 bg-slate-50">
+                <thead className="text-left text-slate-500 bg-slate-50 border-b border-slate-100">
                   <tr>
                     <th className="py-3 px-4 font-medium">Name</th>
                     <th className="py-3 px-4 font-medium">Phone</th>
@@ -447,13 +473,13 @@ export default function LeadsPage() {
                   {processedLeads.map((lead) => (
                     <tr
                       key={lead._id}
-                      className="border-t hover:bg-slate-50 cursor-pointer align-middle"
+                      className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer align-middle transition-colors"
                       onClick={() => setSelectedLead(lead)}
                     >
-                      <td className="py-3.5 px-4 font-medium">{lead.name || "Untitled"}</td>
-                      <td className="py-3.5 px-4">{lead.phone || "-"}</td>
-                      <td className="py-3.5 px-4">{lead.interestedLocation || "-"}</td>
-                      <td className="py-3.5 px-4 tabular-nums">{money(lead.budget)}</td>
+                      <td className="py-3.5 px-4 font-medium text-slate-900">{lead.name || "Untitled"}</td>
+                      <td className="py-3.5 px-4 text-slate-700">{lead.phone || "-"}</td>
+                      <td className="py-3.5 px-4 text-slate-700">{lead.interestedLocation || "-"}</td>
+                      <td className="py-3.5 px-4 tabular-nums text-slate-700">{money(lead.budget)}</td>
                       <td className="py-3.5 px-4">
                         <span
                           className={`px-2 py-1 text-xs rounded-full border ${getPriorityBadge(
@@ -470,7 +496,7 @@ export default function LeadsPage() {
                               e.stopPropagation();
                               openConvert(lead);
                             }}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
                           >
                             Convert
                             <ArrowRight size={13} />
@@ -500,15 +526,18 @@ export default function LeadsPage() {
       {/* ================= CONVERT MINI-FORM ================= */}
       {convertTarget && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeConvert}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5"
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h2 className="text-lg font-semibold">Convert to deal</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Convert to deal</h2>
               <p className="text-sm text-slate-500 mt-1">
                 Promote {convertTarget.lead.name || "this lead"} into your deal
                 pipeline.
@@ -527,7 +556,7 @@ export default function LeadsPage() {
                       t ? { ...t, title: e.target.value } : t
                     )
                   }
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
                   placeholder="Deal title"
                 />
               </div>
@@ -544,7 +573,7 @@ export default function LeadsPage() {
                       t ? { ...t, value: Number(e.target.value) } : t
                     )
                   }
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
                   placeholder="0"
                 />
               </div>
@@ -564,7 +593,7 @@ export default function LeadsPage() {
                       t ? { ...t, probability: Number(e.target.value) } : t
                     )
                   }
-                  className="w-full"
+                  className="w-full accent-black"
                 />
               </div>
             </div>
@@ -573,30 +602,33 @@ export default function LeadsPage() {
               <button
                 onClick={closeConvert}
                 disabled={converting}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConvert}
                 disabled={converting}
-                className="flex-1 bg-black text-white py-2 rounded-lg text-sm disabled:opacity-60"
+                className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors"
               >
                 {converting ? "Converting..." : "Create Deal"}
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* ================= DELETE CONFIRMATION MODAL ================= */}
       {deleteTarget && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeDelete}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
@@ -604,7 +636,7 @@ export default function LeadsPage() {
                 <Trash2 size={18} className="text-red-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Delete lead?</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Delete lead?</h2>
                 <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
               </div>
             </div>
@@ -621,34 +653,37 @@ export default function LeadsPage() {
               <button
                 onClick={closeDelete}
                 disabled={deleting}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60"
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60 transition-colors"
               >
                 {deleting ? "Deleting..." : "Delete"}
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* ================= IMPORT MODAL ================= */}
       {showImport && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeImport}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5"
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h2 className="text-lg font-semibold">Import leads</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Import leads</h2>
               <p className="text-sm text-slate-500 mt-1">
                 Bulk-add leads from a CSV or Excel file.
               </p>
@@ -660,10 +695,10 @@ export default function LeadsPage() {
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">1.</span>
                     <div>
-                      <p>Download the template</p>
+                      <p className="text-slate-700">Download the template</p>
                       <button
                         onClick={handleDownloadTemplate}
-                        className="mt-1 text-emerald-600 underline"
+                        className="mt-1 text-emerald-600 hover:text-emerald-700 underline"
                       >
                         Download situs-leads-template.csv
                       </button>
@@ -672,7 +707,7 @@ export default function LeadsPage() {
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">2.</span>
-                    <p>
+                    <p className="text-slate-700">
                       Fill it in: name, phone, email, budget,
                       interestedLocation, source
                     </p>
@@ -680,11 +715,11 @@ export default function LeadsPage() {
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
-                    <p>Upload the file below (CSV or Excel)</p>
+                    <p className="text-slate-700">Upload the file below (CSV or Excel)</p>
                   </div>
                 </div>
 
-                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400">
+                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50/50 transition-colors">
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -704,7 +739,7 @@ export default function LeadsPage() {
                 <button
                   onClick={closeImport}
                   disabled={importing}
-                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -735,13 +770,13 @@ export default function LeadsPage() {
 
                 <button
                   onClick={closeImport}
-                  className="w-full bg-black text-white py-2 rounded-lg text-sm"
+                  className="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 transition-colors"
                 >
                   Done
                 </button>
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       )}
 
