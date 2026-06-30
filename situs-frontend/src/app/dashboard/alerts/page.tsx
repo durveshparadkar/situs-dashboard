@@ -111,6 +111,35 @@ function getSeverityStyle(severity: AlertSeverity) {
   }
 }
 
+function getSeverityDot(severity: AlertSeverity) {
+  switch (severity) {
+    case "critical":
+      return "bg-red-500";
+    case "watch":
+      return "bg-amber-500";
+    default:
+      return "bg-emerald-500";
+  }
+}
+
+const Card = ({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, y: 6 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    whileHover={{ y: -2 }}
+    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
+  >
+    {children}
+  </motion.div>
+);
+
 /* ================= PAGE ================= */
 
 export default function AlertsPage() {
@@ -217,39 +246,72 @@ export default function AlertsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  /* ================= LOADING ================= */
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-8 w-56 bg-slate-200 rounded-md" />
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...Array(3)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
+      </div>
+    );
+  }
+
   /* ================= UI ================= */
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10 space-y-8">
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
 
       {/* HEADER */}
       <div className="flex justify-between items-center">
         <div>
           <button
             onClick={() => router.back()}
-            className="flex gap-2 text-sm text-slate-500"
+            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
           >
             <ArrowLeft size={16} /> Back
           </button>
 
-          <h1 className="text-3xl font-semibold">Alerts Intelligence</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Alerts Intelligence
+          </h1>
 
-          <p className="text-xs mt-1">
+          <p className="text-xs mt-1.5 flex items-center gap-1.5">
             {connected ? (
-              <span className="text-emerald-600">● Live</span>
+              <span className="text-emerald-600 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Live
+              </span>
             ) : (
-              <span className="text-red-500">● Reconnecting...</span>
+              <span className="text-red-500 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                Reconnecting...
+              </span>
             )}
           </p>
         </div>
 
         {/* NOTIFICATIONS */}
         <div className="relative">
-          <button onClick={() => setShowPanel((p) => !p)}>
-            <Bell size={20} />
+          <button
+            onClick={() => setShowPanel((p) => !p)}
+            className="relative p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-colors"
+          >
+            <Bell size={18} />
 
             {unreadCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1 rounded">
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] px-1.5 rounded-full">
                 {unreadCount}
               </span>
             )}
@@ -261,15 +323,19 @@ export default function AlertsPage() {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 6 }}
-                className="absolute right-0 mt-3 w-72 bg-white border rounded-xl shadow-lg p-3 z-50"
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50"
               >
                 {notifications.length === 0 ? (
-                  <div className="p-2 text-sm text-slate-400">
+                  <div className="p-2 text-sm text-slate-400 text-center">
                     No notifications
                   </div>
                 ) : (
                   notifications.map((n) => (
-                    <div key={n._id} className="p-2 text-sm">
+                    <div
+                      key={n._id}
+                      className="p-2 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                    >
                       {n.title}
                     </div>
                   ))
@@ -281,90 +347,115 @@ export default function AlertsPage() {
       </div>
 
       {/* METRICS */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <MetricCard
-          title="Critical"
-          value={String(
-            visibleAlerts.filter((a) => a.severity === "critical").length
-          )}
-        />
-        <MetricCard
-          title="Watch"
-          value={String(
-            visibleAlerts.filter((a) => a.severity === "watch").length
-          )}
-        />
-        <MetricCard
-          title="Revenue Risk"
-          value={formatINR(
-            visibleAlerts.reduce((s, a) => s + a.impact, 0)
-          )}
-        />
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <Card>
+          <MetricCard
+            title="Critical"
+            value={String(
+              visibleAlerts.filter((a) => a.severity === "critical").length
+            )}
+          />
+        </Card>
+        <Card>
+          <MetricCard
+            title="Watch"
+            value={String(
+              visibleAlerts.filter((a) => a.severity === "watch").length
+            )}
+          />
+        </Card>
+        <Card>
+          <MetricCard
+            title="Revenue Risk"
+            value={formatINR(
+              visibleAlerts.reduce((s, a) => s + a.impact, 0)
+            )}
+          />
+        </Card>
       </div>
 
       {/* LIST */}
-      <div className="border rounded-xl bg-white divide-y">
-        {loading ? (
-          <div className="p-10 text-center">Connecting...</div>
-        ) : visibleAlerts.length === 0 ? (
-          <div className="p-10 text-center text-slate-400 text-sm">
-            No active alerts
+      <Card className="p-0 overflow-hidden">
+        {visibleAlerts.length === 0 ? (
+          <div className="p-16 text-center">
+            <p className="text-slate-500 text-sm">No active alerts</p>
+            <p className="text-slate-400 text-xs mt-1">
+              You&apos;ll see critical and watch signals here as they&apos;re detected
+            </p>
           </div>
         ) : (
-          visibleAlerts.map((alert) => (
-            <div key={alert.id} className="p-4 flex justify-between">
-              <div>
-                <p className="font-medium">{alert.title}</p>
+          <div className="divide-y divide-slate-100">
+            {visibleAlerts.map((alert) => (
+              <div
+                key={alert.id}
+                className="p-5 flex justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full shrink-0 ${getSeverityDot(
+                        alert.severity
+                      )}`}
+                    />
+                    <p className="font-medium text-slate-900">{alert.title}</p>
+                  </div>
 
-                <span
-                  className={`text-xs px-2 py-0.5 rounded border ${getSeverityStyle(
-                    alert.severity
-                  )}`}
-                >
-                  {alert.severity}
-                </span>
+                  <span
+                    className={`inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full border ${getSeverityStyle(
+                      alert.severity
+                    )}`}
+                  >
+                    {alert.severity}
+                  </span>
 
-                <p className="text-sm">{alert.message}</p>
+                  <p className="text-sm text-slate-600 mt-2">{alert.message}</p>
 
-                <p className="text-xs text-slate-400">
-                  AI Score: {alert.riskScore}
-                </p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <p className="text-xs text-slate-400">
+                      AI Score: {alert.riskScore}
+                    </p>
+                    {alert.aiReason && (
+                      <>
+                        <span className="h-1 w-1 rounded-full bg-slate-300" />
+                        <p className="text-xs text-slate-400">
+                          {alert.aiReason}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-                {alert.aiReason && (
-                  <p className="text-xs text-slate-400">
-                    {alert.aiReason}
+                <div className="flex flex-col items-end gap-3 shrink-0">
+                  <p className="font-medium text-slate-900 tabular-nums">
+                    {formatINR(alert.impact)}
                   </p>
-                )}
-              </div>
 
-              <div className="flex flex-col items-end gap-2">
-                <p>{formatINR(alert.impact)}</p>
-
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={() => handleAck(alert)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    Ack
-                  </button>
-                  <button
-                    onClick={() => handleSnooze(alert)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    Snooze
-                  </button>
-                  <button
-                    onClick={() => handleResolve(alert)}
-                    className="bg-black text-white px-2 py-1 rounded"
-                  >
-                    Resolve
-                  </button>
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      onClick={() => handleAck(alert)}
+                      className="border border-slate-200 px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
+                    >
+                      Ack
+                    </button>
+                    <button
+                      onClick={() => handleSnooze(alert)}
+                      className="border border-slate-200 px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
+                    >
+                      Snooze
+                    </button>
+                    <button
+                      onClick={() => handleResolve(alert)}
+                      className="bg-black text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                      Resolve
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
