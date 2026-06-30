@@ -32,7 +32,7 @@ import { apiFetch } from "@/lib/api";
 /* ================= GLOBAL UI ================= */
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
-  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+  <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
 );
 
 const Card = ({
@@ -43,9 +43,10 @@ const Card = ({
   className?: string;
 }) => (
   <motion.div
-    initial={{ opacity: 0, y: 8 }}
+    initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
-    className={`rounded-2xl border bg-white shadow-sm p-4 ${className}`}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    className={`rounded-2xl border border-slate-200 bg-white shadow-sm p-4 ${className}`}
   >
     {children}
   </motion.div>
@@ -90,6 +91,15 @@ const stages: Stage[] = [
   "Negotiation",
   "Won",
 ];
+
+/* Subtle accent color per column — purely visual, doesn't touch logic */
+const stageAccent: Record<Stage, string> = {
+  Leads: "bg-slate-400",
+  Qualified: "bg-blue-400",
+  Proposal: "bg-amber-400",
+  Negotiation: "bg-purple-400",
+  Won: "bg-emerald-500",
+};
 
 const isStage = (v: unknown): v is Stage =>
   typeof v === "string" && stages.includes(v as Stage);
@@ -166,30 +176,32 @@ function DealCard({
       ref={dragOverlay ? undefined : setNodeRef}
       {...(dragOverlay ? {} : attributes)}
       {...(dragOverlay ? {} : listeners)}
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       style={{
         transform: transform ? CSS.Transform.toString(transform) : undefined,
         transition: transition || "transform 200ms ease",
-        opacity: isDragging ? 0.5 : 1,
+        opacity: isDragging ? 0.4 : 1,
       }}
       onClick={(e) => {
         e.stopPropagation();
         onClick?.();
       }}
-      className="bg-white border rounded-xl p-4 shadow-sm hover:shadow-md transition cursor-pointer"
+      className={`bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-slate-300 transition-all cursor-grab active:cursor-grabbing ${
+        dragOverlay ? "shadow-lg rotate-1" : ""
+      }`}
     >
-      <p className="text-sm font-semibold">
+      <p className="text-sm font-semibold text-slate-900 truncate">
         {deal.title || "Untitled"}
       </p>
 
-      <p className="text-xs text-slate-500 mt-1">
+      <p className="text-xs text-slate-500 mt-1 tabular-nums">
         ₹{Number(deal.value ?? 0).toLocaleString()}
       </p>
 
-      <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
+      <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div
-          className="h-full bg-black"
+          className="h-full bg-black rounded-full transition-all"
           style={{ width: `${probability}%` }}
         />
       </div>
@@ -213,13 +225,16 @@ function Column({
   return (
     <div className="w-[300px] shrink-0">
       <Card
-        className={`transition ${
-          isOver ? "ring-2 ring-black bg-slate-50" : ""
+        className={`transition-all duration-150 ${
+          isOver ? "ring-2 ring-black/10 bg-slate-50 border-slate-300" : ""
         }`}
       >
-        <div className="flex justify-between mb-3">
-          <p className="text-sm font-semibold">{stage}</p>
-          <span className="text-xs bg-black text-white px-2 rounded-full">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${stageAccent[stage]}`} />
+            <p className="text-sm font-semibold text-slate-900">{stage}</p>
+          </div>
+          <span className="text-xs bg-slate-900 text-white px-2 py-0.5 rounded-full tabular-nums">
             {deals.length}
           </span>
         </div>
@@ -230,7 +245,7 @@ function Column({
         >
           <div ref={setNodeRef} className="space-y-3 min-h-[200px]">
             {deals.length === 0 ? (
-              <div className="text-xs text-center text-slate-400 py-10 border border-dashed rounded-lg">
+              <div className="text-xs text-center text-slate-400 py-10 border border-dashed border-slate-200 rounded-lg">
                 No deals yet
               </div>
             ) : (
@@ -255,6 +270,7 @@ export default function PipelinePage() {
   const router = useRouter();
 
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
 
@@ -276,6 +292,8 @@ export default function PipelinePage() {
 
     const load = async () => {
       try {
+        setLoading(true);
+
         /* 1. Fetch the default pipeline to learn real stages + their IDs */
         const idToCol: Record<string, Stage> = {};
 const colToId: Record<Stage, string> = {} as Record<Stage, string>;
@@ -325,6 +343,8 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
         if (!ignore) setDeals(mapped);
       } catch (err) {
         console.error("Failed to fetch pipeline data", err);
+      } finally {
+        if (!ignore) setLoading(false);
       }
     };
 
@@ -410,6 +430,35 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
       }
     : null;
 
+  /* ================= LOADING ================= */
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-7 w-40 bg-slate-200 rounded-md" />
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...Array(3)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="flex gap-6 overflow-x-auto pb-2">
+          {stages.map((s) => (
+            <div
+              key={s}
+              className="w-[300px] shrink-0 h-72 bg-slate-100 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <DndContext
@@ -423,21 +472,26 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
           <div>
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-sm text-slate-500 hover:text-black mb-2"
+              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
             >
               <ArrowLeft size={16} /> Back
             </button>
 
-            <h1 className="text-2xl font-semibold">Pipeline</h1>
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+              Pipeline
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Drag deals between stages to update their progress
+            </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <Card><MetricCard title="Deals" value={deals.length.toString()} /></Card>
             <Card><MetricCard title="Pipeline Value" value={`₹${pipelineValue.toLocaleString()}`} /></Card>
             <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
           </div>
 
-          <div className="flex gap-6 overflow-x-auto pb-2">
+          <div className="flex gap-5 overflow-x-auto pb-2 -mx-1 px-1">
             {stages.map((s) => (
               <Column
                 key={s}
