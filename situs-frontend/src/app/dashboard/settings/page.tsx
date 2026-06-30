@@ -16,9 +16,8 @@ import toast from "react-hot-toast";
 
 /* ================= GLOBAL UI ================= */
 /* Matches the dashboard: max-w-7xl, p-6, space-y-8, white motion cards. */
-
 const PageContainer = ({ children }: { children: ReactNode }) => (
-  <div className="max-w-7xl mx-auto p-6 space-y-8">{children}</div>
+  <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
 );
 
 const Card = ({
