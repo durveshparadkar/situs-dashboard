@@ -35,7 +35,7 @@ import {
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
-    <div className="max-w-7xl mx-auto p-6 space-y-8">
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
       {children}
     </div>
   </div>
@@ -49,9 +49,11 @@ const Card = ({
   className?: string;
 }) => (
   <m.div
-    initial={{ opacity: 0, y: 8 }}
+    initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
-    className={`rounded-2xl border bg-white shadow-sm p-5 ${className}`}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    whileHover={{ y: -2 }}
+    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
   >
     {children}
   </m.div>
@@ -383,9 +385,22 @@ export default function DealsPage() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto p-6 space-y-6 animate-pulse">
-        <div className="h-10 w-60 bg-slate-200 rounded" />
-        <div className="h-64 bg-slate-200 rounded-xl" />
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-7 w-40 bg-slate-200 rounded-md" />
+          <div className="h-4 w-64 bg-slate-100 rounded-md" />
+        </div>
+        <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...Array(3)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -401,14 +416,16 @@ export default function DealsPage() {
           <div>
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-sm text-slate-500 mb-2"
+              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
             >
               <ArrowLeft size={16} />
               Back
             </button>
 
-            <h1 className="text-2xl font-semibold">Deals</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+              Deals
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
               Track revenue, risk, and momentum
             </p>
           </div>
@@ -416,7 +433,7 @@ export default function DealsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowImport(true)}
-              className="flex items-center gap-2 border border-slate-300 px-4 py-2 rounded-lg text-sm"
+              className="flex items-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
               <Upload size={16} />
               Import
@@ -424,7 +441,7 @@ export default function DealsPage() {
 
             <button
               onClick={() => setSelectedDeal({} as RankedDeal)}
-              className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm"
+              className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-800 active:scale-[0.98] transition"
             >
               <Plus size={16} />
               Add Deal
@@ -434,17 +451,17 @@ export default function DealsPage() {
 
         {/* HERO */}
         <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
-          <h2 className="text-3xl font-bold">
+          <h2 className="text-3xl font-bold tracking-tight">
             ₹{pipelineValue.toLocaleString()}
           </h2>
 
-          <p className="text-white/70 mt-2">
-            Pipeline Value • {deals.length} deals
+          <p className="text-white/70 mt-2 text-sm">
+            Pipeline Value • {deals.length} deal{deals.length === 1 ? "" : "s"}
           </p>
         </Card>
 
         {/* METRICS */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <Card><MetricCard title="Total Deals" value={deals.length.toString()} /></Card>
           <Card><MetricCard title="Pipeline Value" value={`₹${pipelineValue.toLocaleString()}`} /></Card>
           <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
@@ -457,12 +474,12 @@ export default function DealsPage() {
               placeholder="Search deals..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
             />
 
             <button
               onClick={() => setSortHigh((s) => !s)}
-              className="px-4 py-2 border rounded-lg text-sm"
+              className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
             >
               {sortHigh ? "₹ High → Low" : "₹ Low → High"}
             </button>
@@ -472,13 +489,20 @@ export default function DealsPage() {
         {/* TABLE */}
         <Card className="p-0 overflow-hidden">
           {finalDeals.length === 0 ? (
-            <div className="text-center py-16 text-slate-500 text-sm">
-              No deals found
+            <div className="text-center py-20 text-sm">
+              <p className="text-slate-500">
+                {search ? "No deals match your search" : "No deals yet"}
+              </p>
+              {!search && (
+                <p className="text-slate-400 text-xs mt-1">
+                  Add your first deal or import from a spreadsheet
+                </p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[920px] text-sm">
-                <thead className="text-left text-slate-500 bg-slate-50">
+                <thead className="text-left text-slate-500 bg-slate-50 border-b border-slate-100">
                   <tr>
                     <th className="py-3 px-4 font-medium">Deal</th>
                     <th className="py-3 px-4 font-medium">Value</th>
@@ -498,11 +522,11 @@ export default function DealsPage() {
                     return (
                       <tr
                         key={deal._id}
-                        className="border-t hover:bg-slate-50 cursor-pointer align-middle"
+                        className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer align-middle transition-colors"
                         onClick={() => setSelectedDeal(deal)}
                       >
                         {/* Deal */}
-                        <td className="py-3.5 px-4 font-medium">
+                        <td className="py-3.5 px-4 font-medium text-slate-900">
                           <span className="inline-flex items-center gap-2">
                             {deal.name}
                             {deal.status === "won" && (
@@ -519,17 +543,17 @@ export default function DealsPage() {
                         </td>
 
                         {/* Value */}
-                        <td className="py-3.5 px-4 tabular-nums">
+                        <td className="py-3.5 px-4 tabular-nums text-slate-700">
                           ₹{deal.value.toLocaleString()}
                         </td>
 
                         {/* Probability */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2">
-                            <span className="tabular-nums w-9">{deal.probability}%</span>
+                            <span className="tabular-nums w-9 text-slate-700">{deal.probability}%</span>
                             <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-black"
+                                className="h-full bg-black rounded-full transition-all"
                                 style={{ width: `${deal.probability}%` }}
                               />
                             </div>
@@ -541,7 +565,7 @@ export default function DealsPage() {
                           {deal.riskScore}
                         </td>
 
-                        {/* Momentum — inner flex so it aligns with the row */}
+                        {/* Momentum */}
                         <td className="py-3.5 px-4">
                           <span className={`inline-flex items-center gap-1.5 ${momentum.color}`}>
                             <Icon size={14} />
@@ -620,11 +644,14 @@ export default function DealsPage() {
       {/* WON / LOST CONFIRMATION MODAL */}
       {closeTarget && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeCloseModal}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+          <m.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
@@ -638,7 +665,7 @@ export default function DealsPage() {
                 </div>
               )}
               <div>
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-lg font-semibold text-slate-900">
                   {closeOutcome === "won" ? "Mark deal as Won?" : "Mark deal as Lost?"}
                 </h2>
                 <p className="text-sm text-slate-500">
@@ -663,14 +690,14 @@ export default function DealsPage() {
               <button
                 onClick={closeCloseModal}
                 disabled={closing}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleMarkClosed}
                 disabled={closing}
-                className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-black/90 disabled:opacity-60"
+                className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors"
               >
                 {closing
                   ? "Saving..."
@@ -679,18 +706,21 @@ export default function DealsPage() {
                     : "Mark Lost"}
               </button>
             </div>
-          </div>
+          </m.div>
         </div>
       )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {deleteTarget && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeDelete}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4"
+          <m.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
@@ -698,7 +728,7 @@ export default function DealsPage() {
                 <Trash2 size={18} className="text-red-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Delete deal?</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Delete deal?</h2>
                 <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
               </div>
             </div>
@@ -715,34 +745,37 @@ export default function DealsPage() {
               <button
                 onClick={closeDelete}
                 disabled={deleting}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60"
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60 transition-colors"
               >
                 {deleting ? "Deleting..." : "Delete"}
               </button>
             </div>
-          </div>
+          </m.div>
         </div>
       )}
 
       {/* IMPORT MODAL */}
       {showImport && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeImport}
         >
-          <div
-            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5"
+          <m.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.15 }}
+            className="bg-white rounded-2xl w-full max-w-md p-6 space-y-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h2 className="text-lg font-semibold">Import deals</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Import deals</h2>
               <p className="text-sm text-slate-500 mt-1">
                 Bring your existing deals into Situs.
               </p>
@@ -763,10 +796,10 @@ export default function DealsPage() {
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">1.</span>
                     <div>
-                      <p>Download the template</p>
+                      <p className="text-slate-700">Download the template</p>
                       <button
                         onClick={handleDownloadTemplate}
-                        className="mt-1 text-emerald-600 underline"
+                        className="mt-1 text-emerald-600 hover:text-emerald-700 underline"
                       >
                         Download situs-deals-template.csv
                       </button>
@@ -775,16 +808,16 @@ export default function DealsPage() {
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">2.</span>
-                    <p>Fill it with your deals (title, value, probability)</p>
+                    <p className="text-slate-700">Fill it with your deals (title, value, probability)</p>
                   </div>
 
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
-                    <p>Upload the file below (CSV or Excel)</p>
+                    <p className="text-slate-700">Upload the file below (CSV or Excel)</p>
                   </div>
                 </div>
 
-                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400">
+                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50/50 transition-colors">
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -804,7 +837,7 @@ export default function DealsPage() {
                 <button
                   onClick={closeImport}
                   disabled={importing}
-                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600"
+                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -835,13 +868,13 @@ export default function DealsPage() {
 
                 <button
                   onClick={closeImport}
-                  className="w-full bg-black text-white py-2 rounded-lg text-sm"
+                  className="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 transition-colors"
                 >
                   Done
                 </button>
               </div>
             )}
-          </div>
+          </m.div>
         </div>
       )}
     </>
