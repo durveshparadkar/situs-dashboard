@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
-    <div className="max-w-7xl mx-auto p-6 space-y-8">
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
       {children}
     </div>
   </div>
@@ -24,9 +24,11 @@ const Card = ({
   className?: string;
 }) => (
   <motion.div
-    initial={{ opacity: 0, y: 8 }}
+    initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
-    className={`rounded-2xl border bg-white shadow-sm p-5 ${className}`}
+    transition={{ duration: 0.25, ease: "easeOut" }}
+    whileHover={{ y: -2 }}
+    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
   >
     {children}
   </motion.div>
@@ -138,37 +140,72 @@ export default function AnalyticsPage() {
   const biggestOpportunity =
     topActions.find((a) => a.priority === "low") || null;
 
-  if (loading)
-    return <div className="p-6 text-slate-400">Loading analytics...</div>;
+  /* ================= LOADING ================= */
 
-  if (error) return <div className="p-6 text-red-500">{error}</div>;
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-7 w-48 bg-slate-200 rounded-md" />
+          <div className="h-4 w-64 bg-slate-100 rounded-md" />
+        </div>
+        <div className="h-32 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+        <div className="h-56 bg-slate-100 rounded-2xl animate-pulse" />
+      </div>
+    );
+  }
+
+  /* ================= ERROR ================= */
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <Card className="border-red-200 bg-red-50/60">
+          <h2 className="text-lg font-semibold text-red-700">
+            Unable to load analytics
+          </h2>
+          <p className="text-sm text-red-600 mt-1.5">{error}</p>
+        </Card>
+      </div>
+    );
+  }
 
   if (!data) return null;
+
+  /* ================= UI ================= */
 
   return (
     <PageContainer>
       <div>
         <button
           onClick={() => router.push("/dashboard")}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-black mb-2"
+          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
         >
           <ArrowLeft size={16} />
           Back
         </button>
 
-        <h1 className="text-2xl font-semibold">Revenue Analytics</h1>
+        <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+          Revenue Analytics
+        </h1>
 
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 mt-0.5">
           AI-driven insights across your pipeline
         </p>
       </div>
 
       <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
-        <h2 className="text-4xl font-bold">
+        <h2 className="text-4xl font-bold tracking-tight">
           {formatMoney(data.summary.totalRevenue)}
         </h2>
 
-        <p className="text-white/70 mt-2">
+        <p className="text-white/70 mt-2 text-sm">
           Total Revenue • Conversion {data.summary.avgConversion}%
         </p>
 
@@ -177,90 +214,105 @@ export default function AnalyticsPage() {
         </p>
       </Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
         <Card><MetricCard title="Revenue" value={formatMoney(data.summary.totalRevenue)} /></Card>
         <Card><MetricCard title="At Risk" value={formatMoney(data.summary.revenueAtRisk)} /></Card>
         <Card><MetricCard title="Conversion" value={`${data.summary.avgConversion}%`} /></Card>
         <Card><MetricCard title="Deals" value={`${data.summary.totalDeals}`} /></Card>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card>
-          <p className="text-xs text-red-500 font-semibold">RISK</p>
-          <p className="mt-2 font-medium">
+      <div className="grid md:grid-cols-2 gap-5">
+        <Card className="border-red-100">
+          <p className="text-xs text-red-500 font-semibold tracking-wide">RISK</p>
+          <p className="mt-2 font-medium text-slate-900">
             {biggestRisk?.message || "No major risk"}
           </p>
         </Card>
 
-        <Card>
-          <p className="text-xs text-emerald-500 font-semibold">OPPORTUNITY</p>
-          <p className="mt-2 font-medium">
+        <Card className="border-emerald-100">
+          <p className="text-xs text-emerald-500 font-semibold tracking-wide">OPPORTUNITY</p>
+          <p className="mt-2 font-medium text-slate-900">
             {biggestOpportunity?.message || "No strong opportunity"}
           </p>
         </Card>
       </div>
 
       <Card>
-        <h3 className="text-sm font-semibold mb-4">Revenue Trend</h3>
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Revenue Trend</h3>
 
-        <div className="flex items-end gap-3 h-44">
-          {revenueTrend.map((r, i) => {
-            const height = (r.revenue / maxRevenue) * 100;
+        {revenueTrend.length === 0 ? (
+          <div className="h-44 flex items-center justify-center text-sm text-slate-400">
+            No revenue data yet
+          </div>
+        ) : (
+          <div className="flex items-end gap-3 h-44">
+            {revenueTrend.map((r, i) => {
+              const height = (r.revenue / maxRevenue) * 100;
 
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
-                <motion.div
-                  initial={{ height: 0 }}
-                  animate={{ height: `${height}%` }}
-                  className={`w-full rounded ${
-                    hoveredBar === i ? "bg-black" : "bg-slate-400"
-                  }`}
-                  onMouseEnter={() => setHoveredBar(i)}
-                  onMouseLeave={() => setHoveredBar(null)}
-                />
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                  <motion.div
+                    initial={{ height: 0 }}
+                    animate={{ height: `${height}%` }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className={`w-full rounded-md transition-colors ${
+                      hoveredBar === i ? "bg-black" : "bg-slate-300"
+                    }`}
+                    onMouseEnter={() => setHoveredBar(i)}
+                    onMouseLeave={() => setHoveredBar(null)}
+                  />
 
-                <span className="text-[10px] mt-1 text-slate-500">
-                  {r.month}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+                  <span className="text-[10px] mt-1.5 text-slate-500">
+                    {r.month}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Card>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        {topActions.map((a, i) => (
-          <Card key={i}>
-            <p className="text-xs text-slate-500">{a.label}</p>
-            <p className="mt-2 text-sm font-medium">{a.message}</p>
-          </Card>
-        ))}
-      </div>
+      {topActions.length > 0 && (
+        <div className="grid md:grid-cols-3 gap-5">
+          {topActions.map((a, i) => (
+            <Card key={i}>
+              <p className="text-xs text-slate-500">{a.label}</p>
+              <p className="mt-2 text-sm font-medium text-slate-900">{a.message}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card>
-        <h3 className="text-sm font-semibold mb-4">Funnel</h3>
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Funnel</h3>
 
-        {funnelStages.map((stage) => (
-          <div key={stage.id} className="mb-4">
-            <div className="flex justify-between text-sm">
-              <span>{stage.name}</span>
-              <span>
-                {stage.conversion !== null ? `${stage.conversion}%` : "-"}
-              </span>
+        {funnelStages.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-8">
+            No funnel data yet
+          </p>
+        ) : (
+          funnelStages.map((stage) => (
+            <div key={stage.id} className="mb-4 last:mb-0">
+              <div className="flex justify-between text-sm text-slate-700">
+                <span>{stage.name}</span>
+                <span className="tabular-nums">
+                  {stage.conversion !== null ? `${stage.conversion}%` : "-"}
+                </span>
+              </div>
+
+              <div className="h-2 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-black rounded-full transition-all"
+                  style={{ width: `${Math.min(stage.deals * 5, 100)}%` }}
+                />
+              </div>
+
+              <p className="text-xs text-slate-500 mt-1.5">
+                {formatMoney(stage.totalValue)} • {stage.avgDays} days
+              </p>
             </div>
-
-            <div className="h-2 bg-slate-100 rounded mt-1">
-              <div
-                className="h-full bg-black"
-                style={{ width: `${Math.min(stage.deals * 5, 100)}%` }}
-              />
-            </div>
-
-            <p className="text-xs text-slate-500 mt-1">
-              {formatMoney(stage.totalValue)} • {stage.avgDays} days
-            </p>
-          </div>
-        ))}
+          ))
+        )}
       </Card>
     </PageContainer>
   );
