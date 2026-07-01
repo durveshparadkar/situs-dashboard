@@ -21,30 +21,14 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 
 function getMomentum(riskScore: number) {
   if (riskScore >= 80) {
-    return {
-      arrow: "↓",
-      label: "Falling",
-      text: "text-rose-600",
-    };
+    return { arrow: "↓", label: "Falling", text: "text-rose-500" };
   }
   if (riskScore >= 50) {
-    return {
-      arrow: "→",
-      label: "Stable",
-      text: "text-zinc-500",
-    };
+    return { arrow: "→", label: "Stable", text: "text-zinc-400" };
   }
-  return {
-    arrow: "↑",
-    label: "Improving",
-    text: "text-emerald-600",
-  };
+  return { arrow: "↑", label: "Improving", text: "text-emerald-600" };
 }
 
-/**
- * Map engine label → our visual band.
- * Works with "Critical" | "Watch" | "Normal" OR "High" | "Medium" | "Low".
- */
 function getBandVisuals(label: string) {
   const n = label.toLowerCase();
   if (n === "critical" || n === "high") {
@@ -71,60 +55,54 @@ export default function FocusMode({
 }: FocusModeProps) {
   return (
     <m.section
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: EASE, delay: 0.05 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
       className="relative overflow-hidden rounded-2xl border border-black/[0.06] bg-white"
     >
-      {/* Ambient emerald wash — signals "this is the priority zone" */}
+      {/* Ambient emerald wash */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.4]"
+        className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(600px 200px at 0% 0%, rgba(5,150,105,0.06), transparent 60%)",
+            "radial-gradient(500px 160px at 0% 0%, rgba(16,185,129,0.05), transparent 60%)",
         }}
       />
 
       {/* HEADER */}
-      <div className="relative px-6 pt-5 pb-3 flex items-center justify-between">
+      <div className="relative px-6 pt-5 pb-3 flex items-center justify-between border-b border-black/[0.04]">
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-50 ring-1 ring-emerald-200/60">
-            <Target
-              className="w-3.5 h-3.5 text-emerald-700"
-              strokeWidth={2}
-            />
+          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 ring-1 ring-emerald-200/60">
+            <Target className="w-4 h-4 text-emerald-700" strokeWidth={1.75} />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h2 className="text-[15px] font-semibold text-zinc-900 tracking-tight">
+              <h2 className="text-[13.5px] font-semibold text-zinc-900 tracking-tight">
                 Focus Mode
               </h2>
-              <Sparkles
-                className="w-3 h-3 text-emerald-600"
-                strokeWidth={2}
-              />
+              <Sparkles className="w-3 h-3 text-emerald-500" strokeWidth={2} />
             </div>
-            <p className="text-[12px] text-zinc-500">
+            <p className="text-[11.5px] text-zinc-400 mt-0.5">
               Your highest-leverage actions right now
             </p>
           </div>
         </div>
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-400">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-zinc-400">
           Priority · Now
         </span>
       </div>
 
       {/* LIST */}
-      <div className="relative px-3 pb-3">
+      <div className="relative px-3 py-2">
         {!deals || deals.length === 0 ? (
           <div className="px-3 py-10 text-center">
-            <p className="text-[13px] text-zinc-500">
+            <p className="text-[13px] text-zinc-400">
               Nothing urgent. Go close something.
             </p>
           </div>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-0.5">
             {deals.map(function (deal, index) {
               const risk = getRiskLevel(deal.riskScore);
               const v = getBandVisuals(risk.label);
@@ -135,56 +113,53 @@ export default function FocusMode({
                   ? deal.reasons[0]
                   : "AI detected potential deal risk";
 
-              const rowClassName =
-                "group w-full flex items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors " +
-                (clickable
-                  ? "cursor-pointer hover:bg-zinc-50 focus:outline-none focus:bg-zinc-50 focus:ring-2 focus:ring-emerald-200/60"
-                  : "");
-
               return (
                 <m.li
                   key={deal.id}
-                  initial={{ opacity: 0, x: -8 }}
+                  initial={{ opacity: 0, x: -6 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{
-                    duration: 0.4,
+                    duration: 0.2,
                     ease: EASE,
-                    delay: 0.1 + index * 0.06,
+                    delay: 0.08 + index * 0.05,
                   }}
                 >
                   <button
                     type="button"
-                    onClick={function () {
+                    onClick={() => {
                       if (onDealClickAction) onDealClickAction(deal);
                     }}
-                    className={rowClassName}
+                    className={
+                      "group w-full flex items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors " +
+                      (clickable
+                        ? "cursor-pointer hover:bg-zinc-50 focus:outline-none focus:bg-zinc-50"
+                        : "")
+                    }
                   >
-                    {/* Editorial rank numeral */}
-                    <span className="w-6 text-[12.5px] font-medium tabular-nums text-zinc-300 group-hover:text-zinc-400 transition-colors">
+                    {/* Rank numeral */}
+                    <span className="w-6 text-[12px] font-semibold tabular-nums text-zinc-300 group-hover:text-zinc-400 transition-colors shrink-0">
                       {String(index + 1).padStart(2, "0")}
                     </span>
 
                     {/* Status dot */}
                     <span
-                      className={"w-1.5 h-1.5 rounded-full shrink-0 " + v.dot}
+                      className={"w-2 h-2 rounded-full shrink-0 " + v.dot}
                     />
 
                     {/* Deal + reason */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[14px] font-medium text-zinc-900 truncate">
-                          {deal.name}
-                        </span>
-                      </div>
-                      <p className="text-[12.5px] text-zinc-500 truncate">
+                      <span className="text-[13.5px] font-medium text-zinc-900 truncate block leading-snug">
+                        {deal.name}
+                      </span>
+                      <p className="text-[12px] text-zinc-400 truncate mt-0.5">
                         {topReason}
                       </p>
                     </div>
 
-                    {/* Momentum — preserved from your original */}
+                    {/* Momentum */}
                     <span
                       className={
-                        "hidden md:inline-flex items-center gap-1 text-[11.5px] font-medium tabular-nums shrink-0 " +
+                        "hidden md:inline-flex items-center gap-1 text-[11.5px] font-medium shrink-0 " +
                         momentum.text
                       }
                     >
@@ -197,17 +172,17 @@ export default function FocusMode({
                     {/* Risk chip */}
                     <span
                       className={
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset tabular-nums shrink-0 " +
+                        "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset tabular-nums shrink-0 " +
                         v.chip
                       }
                     >
                       {risk.label} · {deal.riskScore}
                     </span>
 
-                    {/* Chevron — only if clickable */}
+                    {/* Chevron */}
                     {clickable && (
                       <ChevronRight
-                        className="w-4 h-4 text-zinc-300 group-hover:text-zinc-700 group-hover:translate-x-0.5 transition-all shrink-0"
+                        className="w-4 h-4 text-zinc-300 group-hover:text-zinc-600 group-hover:translate-x-0.5 transition-all duration-150 shrink-0"
                         strokeWidth={1.75}
                       />
                     )}
