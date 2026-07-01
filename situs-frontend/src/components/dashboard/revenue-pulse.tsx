@@ -15,31 +15,41 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 
 const statusConfig: Record<
   PulseStatus,
-  { label: string; dot: string; ring: string; gradient: string; text: string }
+  {
+    label: string;
+    dot: string;
+    ring: string;
+    gradient: string;
+    text: string;
+    badgeClass: string;
+  }
 > = {
   healthy: {
     label: "Healthy",
-    dot: "#059669",
-    ring: "rgba(5, 150, 105, 0.18)",
+    dot: "#10B981",
+    ring: "rgba(16, 185, 129, 0.15)",
     gradient:
-      "linear-gradient(90deg, rgba(5,150,105,0.04) 0%, rgba(5,150,105,0) 60%)",
+      "linear-gradient(90deg, rgba(16,185,129,0.05) 0%, rgba(16,185,129,0) 55%)",
     text: "text-emerald-700",
+    badgeClass: "bg-emerald-50 text-emerald-700 ring-emerald-200/60",
   },
   watch: {
     label: "Watch",
-    dot: "#D97706",
-    ring: "rgba(217, 119, 6, 0.18)",
+    dot: "#F59E0B",
+    ring: "rgba(245, 158, 11, 0.15)",
     gradient:
-      "linear-gradient(90deg, rgba(217,119,6,0.05) 0%, rgba(217,119,6,0) 60%)",
+      "linear-gradient(90deg, rgba(245,158,11,0.05) 0%, rgba(245,158,11,0) 55%)",
     text: "text-amber-700",
+    badgeClass: "bg-amber-50 text-amber-700 ring-amber-200/60",
   },
   critical: {
     label: "Critical",
-    dot: "#E11D48",
-    ring: "rgba(225, 29, 72, 0.2)",
+    dot: "#F43F5E",
+    ring: "rgba(244, 63, 94, 0.15)",
     gradient:
-      "linear-gradient(90deg, rgba(225,29,72,0.06) 0%, rgba(225,29,72,0) 60%)",
+      "linear-gradient(90deg, rgba(244,63,94,0.06) 0%, rgba(244,63,94,0) 55%)",
     text: "text-rose-700",
+    badgeClass: "bg-rose-50 text-rose-700 ring-rose-200/60",
   },
 };
 
@@ -50,31 +60,33 @@ export default function RevenuePulse({
 }: RevenuePulseProps) {
   const cfg = statusConfig[status];
 
-  const accentLineStyle = {
-    background:
-      "linear-gradient(90deg, transparent, " + cfg.dot + ", transparent)",
-    opacity: 0.5,
-  };
-
   return (
     <m.div
-      initial={{ opacity: 0, y: -8 }}
+      initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: EASE }}
+      transition={{ duration: 0.3, ease: EASE }}
       className="relative overflow-hidden rounded-2xl border border-black/[0.06] bg-white"
       style={{ backgroundImage: cfg.gradient }}
     >
-      <div className="absolute inset-x-0 top-0 h-px" style={accentLineStyle} />
+      {/* Top accent line */}
+      <div
+        className="absolute inset-x-0 top-0 h-px opacity-40"
+        style={{
+          background: `linear-gradient(90deg, transparent, ${cfg.dot}, transparent)`,
+        }}
+      />
 
-      <div className="flex items-center justify-between gap-6 px-6 py-5">
+      <div className="flex items-center justify-between gap-6 px-6 py-4">
         <div className="flex items-center gap-4 min-w-0">
+
+          {/* Animated pulse dot */}
           <div className="relative flex items-center justify-center w-3 h-3 shrink-0">
             <m.span
               className="absolute inset-0 rounded-full"
               style={{ background: cfg.ring }}
-              animate={{ scale: [1, 2.4, 1], opacity: [0.6, 0, 0.6] }}
+              animate={{ scale: [1, 2.6, 1], opacity: [0.7, 0, 0.7] }}
               transition={{
-                duration: 2.2,
+                duration: 2.4,
                 repeat: Infinity,
                 ease: "easeOut",
               }}
@@ -85,34 +97,36 @@ export default function RevenuePulse({
             />
           </div>
 
+          {/* Text content */}
           <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-400">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-zinc-400">
                 Revenue Pulse
               </span>
               <span
                 className={
-                  "text-[11px] font-semibold uppercase tracking-[0.08em] " +
-                  cfg.text
+                  "text-[10.5px] font-semibold uppercase tracking-[0.09em] px-2 py-0.5 rounded-full ring-1 ring-inset " +
+                  cfg.badgeClass
                 }
               >
                 {cfg.label}
               </span>
             </div>
-            <div className="text-[15px] font-medium text-zinc-900 truncate">
+            <p className="text-[14.5px] font-medium text-zinc-900 truncate leading-snug">
               {message}
-            </div>
+            </p>
             {detail && (
-              <div className="text-[13px] text-zinc-500 mt-0.5 truncate">
+              <p className="text-[12.5px] text-zinc-400 mt-0.5 truncate">
                 {detail}
-              </div>
+              </p>
             )}
           </div>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 text-zinc-400">
-          <Activity className="w-4 h-4" strokeWidth={1.75} />
-          <span className="text-[12px] tabular-nums">Live</span>
+        {/* Live indicator */}
+        <div className="hidden sm:flex items-center gap-1.5 text-zinc-400 shrink-0">
+          <Activity className="w-3.5 h-3.5" strokeWidth={1.75} />
+          <span className="text-[11.5px] font-medium tabular-nums">Live</span>
         </div>
       </div>
     </m.div>
