@@ -34,18 +34,18 @@ const toneStyles: Record<
     chipClass: "bg-zinc-50 text-zinc-600 ring-zinc-200/70",
   },
   positive: {
-    accent: "bg-emerald-600",
-    sparkStroke: "#059669",
+    accent: "bg-emerald-500",
+    sparkStroke: "#10B981",
     chipClass: "bg-emerald-50 text-emerald-700 ring-emerald-200/60",
   },
   warning: {
-    accent: "bg-amber-600",
-    sparkStroke: "#D97706",
+    accent: "bg-amber-500",
+    sparkStroke: "#F59E0B",
     chipClass: "bg-amber-50 text-amber-700 ring-amber-200/60",
   },
   risk: {
-    accent: "bg-rose-600",
-    sparkStroke: "#E11D48",
+    accent: "bg-rose-500",
+    sparkStroke: "#F43F5E",
     chipClass: "bg-rose-50 text-rose-700 ring-rose-200/60",
   },
 };
@@ -71,7 +71,7 @@ function Sparkline({
     .join(" ");
 
   return (
-    <svg width={w} height={h} className="overflow-visible" aria-hidden>
+    <svg width={w} height={h} className="overflow-visible opacity-70" aria-hidden>
       <polyline
         points={points}
         fill="none"
@@ -122,8 +122,8 @@ export default function MetricCard({
   const DeltaArrow: ReactNode =
     direction === "up" ? (
       <svg
-        width="10"
-        height="10"
+        width="9"
+        height="9"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -136,8 +136,8 @@ export default function MetricCard({
       </svg>
     ) : direction === "down" ? (
       <svg
-        width="10"
-        height="10"
+        width="9"
+        height="9"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -154,23 +154,23 @@ export default function MetricCard({
     <m.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2, ease: EASE }}
-      className="group relative rounded-2xl border border-black/[0.06] bg-white p-5 transition-colors hover:border-black/[0.10] h-full flex flex-col"
+      className="group relative rounded-2xl border border-black/[0.06] bg-white p-5 transition-all hover:border-black/[0.10] hover:shadow-sm h-full flex flex-col"
     >
       {/* Left accent bar — lights up on hover */}
       <span
         className={
-          "absolute left-0 top-5 bottom-5 w-[2px] rounded-full opacity-0 transition-opacity duration-300 group-hover:opacity-100 " +
+          "absolute left-0 top-4 bottom-4 w-[2.5px] rounded-full opacity-0 transition-opacity duration-300 group-hover:opacity-100 " +
           styles.accent
         }
       />
 
       {/* HEADER ROW */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3.5">
         <div className="flex items-center gap-2 min-w-0">
           {Icon && (
-            <Icon className="w-3.5 h-3.5 text-zinc-400" strokeWidth={1.75} />
+            <Icon className="w-3.5 h-3.5 text-zinc-400 shrink-0" strokeWidth={1.75} />
           )}
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-500 truncate">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-zinc-400 truncate">
             {title}
           </span>
         </div>
@@ -180,7 +180,7 @@ export default function MetricCard({
       </div>
 
       {/* VALUE */}
-      <div className="text-[28px] font-semibold tracking-tight text-zinc-900 tabular-nums leading-none">
+      <div className="text-[26px] font-semibold tracking-tight text-zinc-900 tabular-nums leading-none">
         {value}
       </div>
 
