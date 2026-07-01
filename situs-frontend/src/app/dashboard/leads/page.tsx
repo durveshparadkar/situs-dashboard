@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, Plus, ArrowRight, Upload, Trash2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowLeft, Plus, ArrowRight, Upload, Trash2, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 
 import MetricCard from "../../../components/dashboard/metric-card";
@@ -105,6 +105,80 @@ function getPriorityBadge(priority?: Lead["brainPriority"]) {
   return "bg-slate-100 text-slate-600 border-slate-200";
 }
 
+/* ================= AI SCORING ENGINE ================= */
+
+type ConversionSignal = {
+  label: string;
+  color: string;
+};
+
+type ScoredLead = Lead & {
+  conversionScore: number;
+  signals: ConversionSignal[];
+};
+
+/* Score each lead using available signals — pure client-side, no new API */
+function scoreLeadForConversion(lead: Lead): ScoredLead {
+  let score = 0;
+  const signals: ConversionSignal[] = [];
+
+  /* Brain priority from existing AI engine */
+  if (lead.brainPriority === "critical") {
+    score += 40;
+    signals.push({ label: "AI flagged critical", color: "bg-red-50 text-red-700 border-red-200" });
+  } else if (lead.brainPriority === "high") {
+    score += 30;
+    signals.push({ label: "AI flagged high", color: "bg-red-50 text-red-700 border-red-200" });
+  } else if (lead.brainPriority === "medium") {
+    score += 15;
+  }
+
+  /* Lead score from brain engine if available */
+  if (lead.leadScore && lead.leadScore > 70) {
+    score += 15;
+    signals.push({ label: `Lead score ${lead.leadScore}`, color: "bg-indigo-50 text-indigo-700 border-indigo-200" });
+  }
+
+  /* Budget signals */
+  if (lead.budget >= 1_000_000) {
+    score += 25;
+    signals.push({ label: "High budget", color: "bg-emerald-50 text-emerald-700 border-emerald-200" });
+  } else if (lead.budget >= 500_000) {
+    score += 15;
+    signals.push({ label: "Strong budget", color: "bg-emerald-50 text-emerald-700 border-emerald-200" });
+  } else if (lead.budget >= 200_000) {
+    score += 8;
+  }
+
+  /* Source quality */
+  if (lead.source === "CUSTOMER_REFERRAL") {
+    score += 20;
+    signals.push({ label: "Referral source", color: "bg-amber-50 text-amber-700 border-amber-200" });
+  } else if (lead.source === "WEBSITE_FORM" || lead.source === "WEBSITE") {
+    score += 12;
+    signals.push({ label: "Inbound intent", color: "bg-blue-50 text-blue-700 border-blue-200" });
+  } else if (lead.source === "PHONE_INBOUND") {
+    score += 10;
+    signals.push({ label: "Called in", color: "bg-blue-50 text-blue-700 border-blue-200" });
+  }
+
+  /* Freshness — recent leads convert better */
+  const daysSinceCreated = Math.floor(
+    (Date.now() - new Date(lead.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (daysSinceCreated <= 3) {
+    score += 15;
+    signals.push({ label: "Fresh lead", color: "bg-violet-50 text-violet-700 border-violet-200" });
+  } else if (daysSinceCreated <= 7) {
+    score += 8;
+    signals.push({ label: "Added this week", color: "bg-violet-50 text-violet-700 border-violet-200" });
+  } else if (daysSinceCreated > 30) {
+    score -= 10; /* Aging penalty */
+  }
+
+  return { ...lead, conversionScore: Math.min(score, 100), signals };
+}
+
 /* ================= CONVERT FORM STATE ================= */
 
 type ConvertTarget = {
@@ -123,11 +197,9 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [sortHigh, setSortHigh] = useState(true);
 
-  /* Convert-to-deal mini-form state */
   const [convertTarget, setConvertTarget] = useState<ConvertTarget | null>(null);
   const [converting, setConverting] = useState(false);
 
-  /* Import modal state */
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{
@@ -136,7 +208,6 @@ export default function LeadsPage() {
     skipped: Array<{ row: number; reason: string }>;
   } | null>(null);
 
-  /* Delete confirmation state */
   const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -160,7 +231,6 @@ export default function LeadsPage() {
 
   /* ================= CONVERT HANDLERS ================= */
 
-  /* Open the mini-form, pre-filled from the lead */
   const openConvert = (lead: Lead) => {
     setConvertTarget({
       lead,
@@ -175,7 +245,6 @@ export default function LeadsPage() {
     setConvertTarget(null);
   };
 
-  /* Create the deal, then archive the lead */
   const handleConvert = async () => {
     if (!convertTarget) return;
 
@@ -189,17 +258,12 @@ export default function LeadsPage() {
     try {
       setConverting(true);
 
-      /* 1) Create the deal. Backend resolves the default pipeline + first
-            stage when pipelineId/stageId are omitted. */
       await createDeal({
         title: title.trim(),
         value: Number(value) || 0,
         probability: Number(probability) || 0,
       });
 
-      /* 2) Archive the original lead so it leaves the active list.
-            Wrapped separately: if archiving fails (e.g. permissions),
-            the deal still exists. We just warn instead of erroring out. */
       try {
         await apiFetch(`/api/leads/${lead._id}/actions/archive`, {
           method: "PATCH",
@@ -209,9 +273,7 @@ export default function LeadsPage() {
         toast("Deal created. Lead could not be archived.", { icon: "!" });
       }
 
-      /* 3) Remove the lead from local state immediately */
       setLeads((current) => current.filter((l) => l._id !== lead._id));
-
       toast.success("Lead converted to deal");
       setConvertTarget(null);
     } catch (err) {
@@ -223,8 +285,6 @@ export default function LeadsPage() {
   };
 
   /* ================= DELETE HANDLERS ================= */
-  /* Backend's DELETE /api/leads/:id maps to archive, so we use the
-     proven archive action endpoint directly. The lead leaves the list. */
 
   const closeDelete = () => {
     if (deleting) return;
@@ -238,7 +298,6 @@ export default function LeadsPage() {
       await apiFetch(`/api/leads/${deleteTarget._id}/actions/archive`, {
         method: "PATCH",
       });
-
       setLeads((current) => current.filter((l) => l._id !== deleteTarget._id));
       toast.success("Lead deleted");
       setDeleteTarget(null);
@@ -267,27 +326,15 @@ export default function LeadsPage() {
     try {
       setImporting(true);
       setImportResult(null);
-
-      /* Smart parser reads CSV and Excel, with fuzzy header matching. */
       const { valid, skipped } = await parseLeadsFile(file);
-
       if (valid.length === 0) {
         toast.error("No valid rows found in file");
         setImportResult({ created: 0, failed: 0, skipped });
         return;
       }
-
       const result = await bulkCreateLeads(valid);
-
-      setImportResult({
-        created: result.created,
-        failed: result.failed,
-        skipped,
-      });
-
+      setImportResult({ created: result.created, failed: result.failed, skipped });
       toast.success(`✅ ${result.created} leads imported`);
-
-      /* Refresh so newly imported leads appear */
       await fetchLeads();
     } catch (err) {
       console.error(err);
@@ -306,9 +353,7 @@ export default function LeadsPage() {
   /* ================= DERIVED ================= */
 
   const processedLeads = useMemo(() => {
-    /* Safety net: never show archived leads, regardless of backend */
     const active = leads.filter((lead) => !lead.isArchived);
-
     const q = search.trim().toLowerCase();
     const data = q
       ? active.filter(
@@ -319,7 +364,6 @@ export default function LeadsPage() {
             (lead.email || "").toLowerCase().includes(q)
         )
       : [...active];
-
     data.sort((a, b) => (sortHigh ? b.budget - a.budget : a.budget - b.budget));
     return data;
   }, [leads, search, sortHigh]);
@@ -335,6 +379,17 @@ export default function LeadsPage() {
     [processedLeads]
   );
 
+  /* ================= AI CONVERSION SUGGESTIONS ================= */
+
+  const topConversionLeads = useMemo(() => {
+    const active = leads.filter((l) => !l.isArchived);
+    return active
+      .map(scoreLeadForConversion)
+      .filter((l) => l.conversionScore >= 20) /* only show if meaningful signal */
+      .sort((a, b) => b.conversionScore - a.conversionScore)
+      .slice(0, 3);
+  }, [leads]);
+
   /* ================= LOADING ================= */
 
   if (loading) {
@@ -348,10 +403,7 @@ export default function LeadsPage() {
         <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[...Array(3)].map((_, i) => (
-            <div
-              key={i}
-              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
-            />
+            <div key={i} className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
           ))}
         </div>
         <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
@@ -362,6 +414,7 @@ export default function LeadsPage() {
   return (
     <>
       <PageContainer>
+        {/* HEADER */}
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
           <div>
             <button
@@ -386,7 +439,6 @@ export default function LeadsPage() {
               <Upload size={16} />
               Import
             </button>
-
             <button
               onClick={() =>
                 setSelectedLead(
@@ -408,6 +460,7 @@ export default function LeadsPage() {
           </div>
         </div>
 
+        {/* HERO */}
         <Card className="bg-slate-950 text-white border-none">
           <h2 className="text-3xl font-bold tracking-tight">{money(metrics.pipeline)}</h2>
           <p className="text-white/70 mt-2 text-sm">
@@ -415,6 +468,7 @@ export default function LeadsPage() {
           </p>
         </Card>
 
+        {/* METRICS */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <Card className="bg-white">
             <MetricCard title="Total Leads" value={metrics.total.toString()} />
@@ -427,6 +481,101 @@ export default function LeadsPage() {
           </Card>
         </div>
 
+        {/* ================= AI CONVERSION PANEL ================= */}
+        <AnimatePresence>
+          {topConversionLeads.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="rounded-2xl border border-emerald-200 bg-white overflow-hidden shadow-sm"
+            >
+              {/* Panel header */}
+              <div className="flex items-center gap-2.5 px-5 py-4 border-b border-emerald-100 bg-emerald-50/40">
+                <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 ring-1 ring-emerald-200/60">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" strokeWidth={2} />
+                </div>
+                <div>
+                  <p className="text-[13.5px] font-semibold text-emerald-900 tracking-tight">
+                    AI Conversion Intelligence
+                  </p>
+                  <p className="text-[11.5px] text-emerald-700/70 mt-0.5">
+                    These leads have the strongest signals to convert into deals right now
+                  </p>
+                </div>
+              </div>
+
+              {/* Lead rows */}
+              <div className="divide-y divide-slate-100">
+                {topConversionLeads.map((lead, i) => (
+                  <motion.div
+                    key={lead._id}
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.05 + i * 0.06, duration: 0.2 }}
+                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors"
+                  >
+                    {/* Rank */}
+                    <span className="text-[12px] font-semibold tabular-nums text-slate-300 w-5 shrink-0">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+
+                    {/* Lead info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p
+                          className="text-[13.5px] font-semibold text-slate-900 cursor-pointer hover:text-emerald-700 transition-colors truncate"
+                          onClick={() => setSelectedLead(lead)}
+                        >
+                          {lead.name}
+                        </p>
+                        {/* Signal chips — show top 2 only to avoid clutter */}
+                        {lead.signals.slice(0, 2).map((signal) => (
+                          <span
+                            key={signal.label}
+                            className={`text-[10.5px] font-medium px-2 py-0.5 rounded-full border ${signal.color}`}
+                          >
+                            {signal.label}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-[12px] text-slate-400 mt-0.5">
+                        {money(lead.budget)} · {lead.interestedLocation || "—"}
+                      </p>
+                    </div>
+
+                    {/* Conversion score bar */}
+                    <div className="hidden sm:flex items-center gap-2 shrink-0">
+                      <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${lead.conversionScore}%` }}
+                          transition={{ duration: 0.6, ease: "easeOut", delay: 0.1 + i * 0.06 }}
+                          className="h-full bg-emerald-500 rounded-full"
+                        />
+                      </div>
+                      <span className="text-[11px] font-semibold text-emerald-700 tabular-nums w-8">
+                        {lead.conversionScore}
+                      </span>
+                    </div>
+
+                    {/* Convert button */}
+                    <button
+                      onClick={() => openConvert(lead)}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.97] px-3 py-1.5 rounded-lg transition-all shrink-0"
+                    >
+                      Convert
+                      <ArrowRight size={12} />
+                    </button>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* SEARCH */}
         <Card className="bg-white">
           <div className="flex flex-col gap-3 sm:flex-row">
             <input
@@ -444,6 +593,7 @@ export default function LeadsPage() {
           </div>
         </Card>
 
+        {/* TABLE */}
         <Card className="bg-white p-0 overflow-hidden">
           {processedLeads.length === 0 ? (
             <div className="text-center py-20 text-sm">
@@ -476,7 +626,9 @@ export default function LeadsPage() {
                       className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer align-middle transition-colors"
                       onClick={() => setSelectedLead(lead)}
                     >
-                      <td className="py-3.5 px-4 font-medium text-slate-900">{lead.name || "Untitled"}</td>
+                      <td className="py-3.5 px-4 font-medium text-slate-900">
+                        {lead.name || "Untitled"}
+                      </td>
                       <td className="py-3.5 px-4 text-slate-700">{lead.phone || "-"}</td>
                       <td className="py-3.5 px-4 text-slate-700">{lead.interestedLocation || "-"}</td>
                       <td className="py-3.5 px-4 tabular-nums text-slate-700">{money(lead.budget)}</td>
@@ -501,7 +653,6 @@ export default function LeadsPage() {
                             Convert
                             <ArrowRight size={13} />
                           </button>
-
                           <button
                             title="Delete lead"
                             onClick={(e) => {
@@ -539,22 +690,17 @@ export default function LeadsPage() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Convert to deal</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Promote {convertTarget.lead.name || "this lead"} into your deal
-                pipeline.
+                Promote {convertTarget.lead.name || "this lead"} into your deal pipeline.
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-500 mb-1">
-                  Deal title
-                </label>
+                <label className="block text-xs text-slate-500 mb-1.5">Deal title</label>
                 <input
                   value={convertTarget.title}
                   onChange={(e) =>
-                    setConvertTarget((t) =>
-                      t ? { ...t, title: e.target.value } : t
-                    )
+                    setConvertTarget((t) => t ? { ...t, title: e.target.value } : t)
                   }
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
                   placeholder="Deal title"
@@ -562,16 +708,12 @@ export default function LeadsPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-500 mb-1">
-                  Value (Rs.)
-                </label>
+                <label className="block text-xs text-slate-500 mb-1.5">Value (₹)</label>
                 <input
                   type="number"
                   value={convertTarget.value}
                   onChange={(e) =>
-                    setConvertTarget((t) =>
-                      t ? { ...t, value: Number(e.target.value) } : t
-                    )
+                    setConvertTarget((t) => t ? { ...t, value: Number(e.target.value) } : t)
                   }
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
                   placeholder="0"
@@ -579,7 +721,7 @@ export default function LeadsPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-500 mb-1">
+                <label className="block text-xs text-slate-500 mb-1.5">
                   Probability: {convertTarget.probability}%
                 </label>
                 <input
@@ -589,9 +731,7 @@ export default function LeadsPage() {
                   step={5}
                   value={convertTarget.probability}
                   onChange={(e) =>
-                    setConvertTarget((t) =>
-                      t ? { ...t, probability: Number(e.target.value) } : t
-                    )
+                    setConvertTarget((t) => t ? { ...t, probability: Number(e.target.value) } : t)
                   }
                   className="w-full accent-black"
                 />
@@ -640,15 +780,12 @@ export default function LeadsPage() {
                 <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
               </div>
             </div>
-
             <p className="text-sm text-slate-600">
               You&apos;re about to delete{" "}
               <span className="font-medium text-slate-900">
                 {deleteTarget.name || "this lead"}
-              </span>
-              .
+              </span>.
             </p>
-
             <div className="flex gap-3 pt-2">
               <button
                 onClick={closeDelete}
@@ -704,15 +841,12 @@ export default function LeadsPage() {
                       </button>
                     </div>
                   </div>
-
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">2.</span>
                     <p className="text-slate-700">
-                      Fill it in: name, phone, email, budget,
-                      interestedLocation, source
+                      Fill it in: name, phone, email, budget, interestedLocation, source
                     </p>
                   </div>
-
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
                     <p className="text-slate-700">Upload the file below (CSV or Excel)</p>
@@ -748,18 +882,14 @@ export default function LeadsPage() {
               <div className="space-y-3">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">
                   {importResult.created} leads imported
-                  {importResult.failed > 0 &&
-                    ` (${importResult.failed} failed on server)`}
+                  {importResult.failed > 0 && ` (${importResult.failed} failed on server)`}
                 </div>
-
                 {importResult.skipped.length > 0 && (
                   <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
                     {importResult.skipped.length} rows skipped
                     <ul className="mt-2 space-y-1 text-xs">
                       {importResult.skipped.slice(0, 10).map((s) => (
-                        <li key={s.row}>
-                          Row {s.row}: {s.reason}
-                        </li>
+                        <li key={s.row}>Row {s.row}: {s.reason}</li>
                       ))}
                       {importResult.skipped.length > 10 && (
                         <li>...and {importResult.skipped.length - 10} more</li>
@@ -767,7 +897,6 @@ export default function LeadsPage() {
                     </ul>
                   </div>
                 )}
-
                 <button
                   onClick={closeImport}
                   className="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 transition-colors"
@@ -789,7 +918,6 @@ export default function LeadsPage() {
         onUpdate={(lead) => {
           const clean = normalizeLead(lead);
           if (!clean._id) return;
-
           setLeads((current) =>
             current.some((existing) => existing._id === clean._id)
               ? current.map((existing) =>
