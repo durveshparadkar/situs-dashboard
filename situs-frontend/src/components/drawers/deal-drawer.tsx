@@ -105,14 +105,6 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
     }
   }
 
-  /**
-   * Maps the selected stage's isWon/isLost flags to the deal's status
-   * field. Moving a deal into a "won" or "lost" stage in the dropdown
-   * doesn't automatically flip status on the backend — that's a
-   * separate field the model uses for revenue/forecast aggregations.
-   * Without this, deals visually sit in "Won" but never count as
-   * closed revenue (analytics revenue trend stays empty).
-   */
   function resolveStatus(): "won" | "lost" | undefined {
     const stage = pipeline?.stages.find((s) => s._id === stageId);
     if (!stage) return undefined;
@@ -121,10 +113,7 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
     return undefined;
   }
 
-  /* ================= SAVE =================
-     Routes through backend deals API:
-     - Create: POST /api/deals (now passes pipelineId + stageId + status)
-     - Update: PATCH /api/deals/:id */
+  /* ================= SAVE ================= */
 
   async function handleSave() {
     if (!title.trim()) return toast.error("Title required");
@@ -144,7 +133,6 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
         });
 
         onUpdate(updated);
-
         toast.success("Deal updated");
       } else {
         const created = await createDeal({
@@ -156,16 +144,13 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
         });
 
         onUpdate(created);
-
         toast.success("Deal created");
       }
 
       onClose();
     } catch (err) {
       console.error(err);
-      toast.error(
-        err instanceof Error ? err.message : "Save failed"
-      );
+      toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
       setLoading(false);
     }
@@ -180,7 +165,6 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
         method: "POST",
         body: JSON.stringify({ name: title }),
       });
-
       setEmailMessage(data?.email || "");
     } catch {
       toast.error("Failed to generate email");
@@ -195,7 +179,6 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
         method: "POST",
         body: JSON.stringify({ message: emailMessage }),
       });
-
       toast.success("Email sent");
       setComposer(null);
     } catch {
@@ -210,13 +193,11 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
       toast.error("Select date & time");
       return;
     }
-
     try {
       await apiFetch("/api/schedule-meeting", {
         method: "POST",
         body: JSON.stringify({ date: meetingDate, time: meetingTime }),
       });
-
       toast.success("Meeting scheduled");
       setComposer(null);
     } catch {
@@ -232,12 +213,12 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
       onClose={onClose}
       title={isEdit ? title || "Deal" : "New Deal"}
       subtitle="Deal Intelligence"
-      icon={<Building2 className="w-4 h-4 text-slate-700" />}
+      icon={<Building2 className="w-4 h-4 text-slate-600" />}
       footer={
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => setComposer("meeting")}
-            className="flex items-center justify-center gap-2 px-3 py-2 text-sm border rounded-lg hover:bg-slate-50"
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
           >
             <Calendar size={14} />
             Schedule
@@ -245,7 +226,7 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
           <button
             onClick={() => setComposer("email")}
-            className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-white bg-black rounded-lg hover:bg-slate-800"
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-white bg-black rounded-lg hover:bg-slate-800 active:scale-[0.98] transition-all"
           >
             <Mail size={14} />
             Email
@@ -257,11 +238,11 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
         {/* STATS */}
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Value" value={`₹${val.toLocaleString()}`} />
+          <Stat label="Value" value={`₹${val.toLocaleString("en-IN")}`} />
           <Stat label="Win %" value={`${prob}%`} />
           <Stat
             label="Expected"
-            value={`₹${weighted.toLocaleString()}`}
+            value={`₹${weighted.toLocaleString("en-IN")}`}
             highlight
           />
         </div>
@@ -273,15 +254,17 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           <Input label="Title" value={title} onChange={setTitle} />
 
           <div>
-            <p className="text-xs text-slate-500 mb-1">Stage</p>
+            <p className="text-xs text-slate-500 mb-1.5">Stage</p>
             <select
               value={stageId}
               onChange={(e) => handleStageChange(e.target.value)}
               disabled={pipelineLoading || !pipeline}
-              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-black/10"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
             >
               {pipelineLoading && <option>Loading stages…</option>}
-              {!pipelineLoading && !pipeline && <option>No pipeline found</option>}
+              {!pipelineLoading && !pipeline && (
+                <option>No pipeline found</option>
+              )}
               {pipeline?.stages.map((s) => (
                 <option key={s._id} value={s._id}>
                   {s.name}
@@ -291,104 +274,153 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Value" type="number" value={value} onChange={setValue} />
-            <Input label="Probability" type="number" value={probability} onChange={setProbability} />
+            <Input
+              label="Value (₹)"
+              type="number"
+              value={value}
+              onChange={setValue}
+            />
+            <Input
+              label="Probability %"
+              type="number"
+              value={probability}
+              onChange={setProbability}
+            />
           </div>
 
           <button
             onClick={handleSave}
             disabled={loading}
-            className="w-full py-2.5 text-sm text-white bg-black rounded-xl hover:bg-slate-800"
+            className="w-full py-2.5 text-sm text-white bg-black rounded-xl hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50 transition-all"
           >
             {loading ? "Saving..." : isEdit ? "Save Changes" : "Create Deal"}
           </button>
         </div>
 
-        {/* EMAIL */}
+        {/* EMAIL COMPOSER */}
         {composer === "email" && (
-          <Card>
-            <div className="flex justify-between mb-2">
-              <SectionTitle>Email</SectionTitle>
-
+          <ComposerCard>
+            <div className="flex items-center justify-between mb-3">
+              <SectionTitle>Draft Email</SectionTitle>
               <button
                 onClick={generateEmail}
-                className="text-emerald-600 text-xs flex items-center gap-1"
+                className="text-emerald-600 hover:text-emerald-700 text-xs flex items-center gap-1 transition-colors"
               >
                 <Sparkles size={12} />
-                {emailLoading ? "..." : "AI"}
+                {emailLoading ? "Generating..." : "AI Draft"}
               </button>
             </div>
 
             <textarea
               value={emailMessage}
               onChange={(e) => setEmailMessage(e.target.value)}
-              className="w-full h-28 border rounded-lg p-2 text-sm"
+              placeholder="Write your email here, or use AI Draft above..."
+              className="w-full h-28 border border-slate-200 rounded-lg p-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5 resize-none"
             />
 
-            <div className="flex justify-end gap-2 mt-2">
-              <button onClick={() => setComposer(null)} className="px-3 py-1 text-sm border rounded">
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={() => setComposer(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+              >
                 Cancel
               </button>
-              <button onClick={sendEmail} className="px-3 py-1 text-sm bg-black text-white rounded">
+              <button
+                onClick={sendEmail}
+                className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-slate-800 transition-colors"
+              >
                 Send
               </button>
             </div>
-          </Card>
+          </ComposerCard>
         )}
 
-        {/* MEETING */}
+        {/* MEETING COMPOSER */}
         {composer === "meeting" && (
-          <Card>
-            <SectionTitle>Meeting</SectionTitle>
+          <ComposerCard>
+            <div className="mb-3">
+              <SectionTitle>Schedule Meeting</SectionTitle>
+            </div>
 
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="date"
                 value={meetingDate}
                 onChange={(e) => setMeetingDate(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
               />
               <input
                 type="time"
                 value={meetingTime}
                 onChange={(e) => setMeetingTime(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
               />
             </div>
 
-            <div className="flex justify-end mt-3">
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={() => setComposer(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
               <button
                 onClick={scheduleMeeting}
-                className="px-3 py-1 text-sm bg-black text-white rounded"
+                className="px-3 py-1.5 text-xs bg-black text-white rounded-lg hover:bg-slate-800 transition-colors"
               >
                 Confirm
               </button>
             </div>
-          </Card>
+          </ComposerCard>
         )}
       </div>
     </DrawerShell>
   );
 }
 
-/* ================= UI ================= */
+/* ================= UI PRIMITIVES ================= */
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Stat({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
   return (
-    <div className={`p-3 rounded-xl border ${
-      highlight ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
-    }`}>
-      <p className="text-[11px] text-slate-400">{label}</p>
-      <p className="text-sm font-semibold text-slate-900">{value}</p>
+    <div
+      className={`p-3 rounded-xl border ${
+        highlight
+          ? "bg-emerald-50 border-emerald-200"
+          : "bg-white border-slate-200"
+      }`}
+    >
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400 mb-1">
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-slate-900 tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] uppercase text-slate-400">{children}</p>;
+  return (
+    <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+      {children}
+    </p>
+  );
 }
 
-function Input({ label, value, onChange, type = "text" }: {
+function Input({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -396,20 +428,20 @@ function Input({ label, value, onChange, type = "text" }: {
 }) {
   return (
     <div>
-      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <p className="text-xs text-slate-500 mb-1.5">{label}</p>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-black/10"
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
       />
     </div>
   );
 }
 
-function Card({ children }: { children: React.ReactNode }) {
+function ComposerCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-4 border rounded-xl bg-slate-50">
+    <div className="p-4 border border-slate-200 rounded-xl bg-slate-50/60">
       {children}
     </div>
   );
