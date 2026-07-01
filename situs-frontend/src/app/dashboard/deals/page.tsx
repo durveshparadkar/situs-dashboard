@@ -71,20 +71,46 @@ type RankedDeal = {
   riskScore: number;
   lastActivityDays: number;
   status: DealStatus;
+  stageName: string; // ← NEW
 };
 
-/* ================= HELPERS ================= */
+/* ================= STAGE HELPERS ================= */
+
+/* Friendly display names for backend stage name strings */
+function friendlyStageName(raw: string): string {
+  const map: Record<string, string> = {
+    DISCOVERY:       "Discovery",
+    QUALIFICATION:   "Qualified",
+    PROPOSAL_SENT:   "Proposal",
+    PROPOSAL:        "Proposal",
+    NEGOTIATION:     "Negotiation",
+    VERBAL_COMMIT:   "Verbal",
+    CONTRACT_SENT:   "Contract",
+    WON:             "Won",
+    LOST:            "Lost",
+  };
+  return map[raw.toUpperCase()] ?? raw;
+}
+
+/* Stage pill color — signals funnel position at a glance */
+function getStagePill(name: string): string {
+  const n = name.toLowerCase();
+  if (n === "won")                                          return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (n === "lost")                                         return "bg-slate-100 text-slate-500 border-slate-200";
+  if (n === "negotiation" || n === "verbal" || n === "contract") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (n === "proposal")                                     return "bg-blue-50 text-blue-700 border-blue-200";
+  if (n === "qualified")                                    return "bg-indigo-50 text-indigo-700 border-indigo-200";
+  return "bg-slate-50 text-slate-600 border-slate-200"; // discovery / unknown
+}
+
+/* ================= OTHER HELPERS ================= */
 
 function getMomentum(days: number) {
   if (days >= 10)
     return { icon: ArrowDownRight, color: "text-red-600", label: "Falling" };
   if (days >= 6)
     return { icon: ArrowRight, color: "text-slate-500", label: "Stable" };
-  return {
-    icon: ArrowUpRight,
-    color: "text-emerald-600",
-    label: "Improving",
-  };
+  return { icon: ArrowUpRight, color: "text-emerald-600", label: "Improving" };
 }
 
 function getRiskColor(score: number) {
@@ -93,27 +119,28 @@ function getRiskColor(score: number) {
   return "text-emerald-600";
 }
 
-/* Days since the deal's last activity */
 function getLastActivityDays(deal: BackendDeal): number {
   if (!deal.lastActivityAt) return 0;
   const last = new Date(deal.lastActivityAt).getTime();
-  return Math.max(
-    0,
-    Math.floor((Date.now() - last) / (1000 * 60 * 60 * 24))
-  );
+  return Math.max(0, Math.floor((Date.now() - last) / (1000 * 60 * 60 * 24)));
 }
 
-/* Map BackendDeal → RankedDeal shape the existing UI expects.
-   Backend already ran the risk engine — we trust riskScore from the wire. */
-function mapBackendDealToRanked(d: BackendDeal): RankedDeal {
+function mapBackendDealToRanked(
+  d: BackendDeal,
+  stageMap: Record<string, string>
+): RankedDeal {
   const rawStatus = (d as unknown as { status?: string }).status;
   const status: DealStatus =
-    rawStatus === "won" ||
-    rawStatus === "lost" ||
-    rawStatus === "stalled" ||
-    rawStatus === "abandoned"
-      ? rawStatus
-      : "open";
+    rawStatus === "won" || rawStatus === "lost" ||
+    rawStatus === "stalled" || rawStatus === "abandoned"
+      ? rawStatus : "open";
+
+  /* Resolve stage name: prefer stageId lookup, fall back to status */
+  const stageId = (d as unknown as { stageId?: string }).stageId ?? "";
+  const rawStageName = stageMap[stageId] ?? "";
+  const stageName = rawStageName
+    ? friendlyStageName(rawStageName)
+    : status === "won" ? "Won" : status === "lost" ? "Lost" : "—";
 
   return {
     _id:              d._id,
@@ -123,6 +150,7 @@ function mapBackendDealToRanked(d: BackendDeal): RankedDeal {
     riskScore:        d.riskScore ?? 0,
     lastActivityDays: getLastActivityDays(d),
     status,
+    stageName,
   };
 }
 
@@ -152,30 +180,23 @@ export default function DealsPage() {
   const [closeOutcome, setCloseOutcome] = useState<"won" | "lost">("won");
   const [closing, setClosing] = useState(false);
 
-  /* Pipeline stages — used to move deal into Won/Lost stage on close,
-     so the analytics funnel groups it under WON/LOST instead of Discovery. */
+  /* Pipeline stage map: stageId → raw name (e.g. "PROPOSAL_SENT") */
   const [wonStageId, setWonStageId] = useState<string | null>(null);
   const [lostStageId, setLostStageId] = useState<string | null>(null);
+  const [stageMap, setStageMap] = useState<Record<string, string>>({});
 
   /* ================= FETCH ================= */
 
   const fetchDeals = useCallback(async () => {
     try {
       setLoading(true);
-
-      /* Calls backend GET /api/deals — authenticated, multi-tenant scoped */
       const res = await listDeals({
-        limit:     100,
-        sortBy:    "updatedAt",
-        sortOrder: "desc",
+        limit: 100, sortBy: "updatedAt", sortOrder: "desc",
       });
-
       setDeals(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error(err);
-      toast.error(
-        err instanceof Error ? err.message : "Failed to load deals"
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to load deals");
       setDeals([]);
     } finally {
       setLoading(false);
@@ -186,31 +207,38 @@ export default function DealsPage() {
     fetchDeals();
   }, [fetchDeals]);
 
-  /* Load the default pipeline once, to find the Won/Lost stage IDs.
-     Marking a deal won/lost moves it into that stage so the funnel updates. */
+  /* Load pipeline — builds full stageId → name map + won/lost IDs */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await apiFetch<{
           success: boolean;
-          data: { stages: Array<{ _id: string; isWon?: boolean; isLost?: boolean }> };
+          data: {
+            stages: Array<{
+              _id: string;
+              name: string;
+              isWon?: boolean;
+              isLost?: boolean;
+            }>;
+          };
         }>("/api/pipelines/default");
 
         const stages = res?.data?.stages ?? [];
         if (cancelled) return;
 
-        const won = stages.find((s) => s.isWon === true);
-        const lost = stages.find((s) => s.isLost === true);
-        setWonStageId(won?._id ?? null);
-        setLostStageId(lost?._id ?? null);
+        /* Build stageId → name map for the whole table */
+        const map: Record<string, string> = {};
+        stages.forEach((s) => { map[s._id] = s.name; });
+        setStageMap(map);
+
+        setWonStageId(stages.find((s) => s.isWon)?._id ?? null);
+        setLostStageId(stages.find((s) => s.isLost)?._id ?? null);
       } catch (err) {
         console.error("Failed to load pipeline stages", err);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   /* ================= IMPORT HANDLERS ================= */
@@ -230,20 +258,11 @@ export default function DealsPage() {
     try {
       setImporting(true);
       setImportResult(null);
-
-      /* Smart parser reads CSV and Excel, with fuzzy header matching. */
       const rows = await parseDealsFile(file);
-
-      if (rows.length === 0) {
-        toast.error("No rows found in file");
-        return;
-      }
-
+      if (rows.length === 0) { toast.error("No rows found in file"); return; }
       const result = await importDeals(rows);
       setImportResult(result);
       toast.success(result.imported + " deals imported");
-
-      /* Refresh the list so newly imported deals appear */
       await fetchDeals();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -260,20 +279,14 @@ export default function DealsPage() {
 
   /* ================= DELETE HANDLERS ================= */
 
-  const closeDelete = () => {
-    if (deleting) return;
-    setDeleteTarget(null);
-  };
+  const closeDelete = () => { if (deleting) return; setDeleteTarget(null); };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
       await deleteDeal(deleteTarget._id);
-
-      /* Remove from local state immediately */
       setDeals((current) => current.filter((d) => d._id !== deleteTarget._id));
-
       toast.success("Deal deleted");
       setDeleteTarget(null);
     } catch (err) {
@@ -291,21 +304,12 @@ export default function DealsPage() {
     setCloseOutcome(outcome);
   };
 
-  const closeCloseModal = () => {
-    if (closing) return;
-    setCloseTarget(null);
-  };
+  const closeCloseModal = () => { if (closing) return; setCloseTarget(null); };
 
   const handleMarkClosed = async () => {
     if (!closeTarget) return;
     try {
       setClosing(true);
-
-      /* PATCH /api/deals/:id with the new status AND the matching pipeline
-         stage (Won or Lost). Setting stageId moves the deal into that funnel
-         column so analytics' funnel reflects it. The Deal model's pre-save
-         hook auto-stamps actualCloseDate + forecastCategory, so revenue,
-         conversion, and trend pick it up too. */
       const updated = await apiFetch<{ success: boolean; data: BackendDeal }>(
         "/api/deals/" + closeTarget._id,
         {
@@ -319,53 +323,40 @@ export default function DealsPage() {
       );
 
       const savedDeal = updated?.data;
-
-      /* Update local state so the badge flips immediately. */
       setDeals((current) =>
         current.map((d) => {
           if (d._id !== closeTarget._id) return d;
           if (savedDeal && savedDeal._id) return savedDeal;
-          /* Fallback: patch the status locally if the response is thin */
           return { ...d, status: closeOutcome } as BackendDeal;
         })
       );
 
-      toast.success(
-        closeOutcome === "won" ? "Deal marked as Won" : "Deal marked as Lost"
-      );
+      toast.success(closeOutcome === "won" ? "Deal marked as Won" : "Deal marked as Lost");
       setCloseTarget(null);
     } catch (err) {
       console.error(err);
-      toast.error(
-        err instanceof Error ? err.message : "Failed to update deal"
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to update deal");
     } finally {
       setClosing(false);
     }
   };
 
-  /* ================= TRANSFORM =================
-     Risk scoring used to happen client-side. Now backend ships the
-     risk score on every deal — we just map shapes. */
+  /* ================= TRANSFORM ================= */
 
-  const rankedDeals: RankedDeal[] = useMemo(() => {
-    return deals.map(mapBackendDealToRanked);
-  }, [deals]);
+  const rankedDeals: RankedDeal[] = useMemo(
+    () => deals.map((d) => mapBackendDealToRanked(d, stageMap)),
+    [deals, stageMap]
+  );
 
   /* ================= FILTER ================= */
 
   const finalDeals = useMemo(() => {
     let data = [...rankedDeals];
-
     if (search.trim()) {
       const q = search.toLowerCase();
       data = data.filter((d) => d.name.toLowerCase().includes(q));
     }
-
-    data.sort((a, b) =>
-      sortHigh ? b.value - a.value : a.value - b.value
-    );
-
+    data.sort((a, b) => sortHigh ? b.value - a.value : a.value - b.value);
     return data;
   }, [rankedDeals, search, sortHigh]);
 
@@ -394,10 +385,7 @@ export default function DealsPage() {
         <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[...Array(3)].map((_, i) => (
-            <div
-              key={i}
-              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
-            />
+            <div key={i} className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
           ))}
         </div>
         <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
@@ -421,7 +409,6 @@ export default function DealsPage() {
               <ArrowLeft size={16} />
               Back
             </button>
-
             <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
               Deals
             </h1>
@@ -438,7 +425,6 @@ export default function DealsPage() {
               <Upload size={16} />
               Import
             </button>
-
             <button
               onClick={() => setSelectedDeal({} as RankedDeal)}
               className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-800 active:scale-[0.98] transition"
@@ -454,7 +440,6 @@ export default function DealsPage() {
           <h2 className="text-3xl font-bold tracking-tight">
             ₹{pipelineValue.toLocaleString()}
           </h2>
-
           <p className="text-white/70 mt-2 text-sm">
             Pipeline Value • {deals.length} deal{deals.length === 1 ? "" : "s"}
           </p>
@@ -476,7 +461,6 @@ export default function DealsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
             />
-
             <button
               onClick={() => setSortHigh((s) => !s)}
               className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
@@ -501,10 +485,11 @@ export default function DealsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-sm">
+              <table className="w-full min-w-[1040px] text-sm">
                 <thead className="text-left text-slate-500 bg-slate-50 border-b border-slate-100">
                   <tr>
                     <th className="py-3 px-4 font-medium">Deal</th>
+                    <th className="py-3 px-4 font-medium">Stage</th>
                     <th className="py-3 px-4 font-medium">Value</th>
                     <th className="py-3 px-4 font-medium">Probability</th>
                     <th className="py-3 px-4 font-medium">Risk</th>
@@ -518,6 +503,7 @@ export default function DealsPage() {
                     const momentum = getMomentum(deal.lastActivityDays);
                     const Icon = momentum.icon;
                     const isClosed = deal.status === "won" || deal.status === "lost";
+                    const stagePill = getStagePill(deal.stageName);
 
                     return (
                       <tr
@@ -525,20 +511,17 @@ export default function DealsPage() {
                         className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer align-middle transition-colors"
                         onClick={() => setSelectedDeal(deal)}
                       >
-                        {/* Deal */}
+                        {/* Deal name */}
                         <td className="py-3.5 px-4 font-medium text-slate-900">
-                          <span className="inline-flex items-center gap-2">
-                            {deal.name}
-                            {deal.status === "won" && (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
-                                Won
-                              </span>
-                            )}
-                            {deal.status === "lost" && (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500">
-                                Lost
-                              </span>
-                            )}
+                          {deal.name}
+                        </td>
+
+                        {/* Stage pill — NEW */}
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${stagePill}`}
+                          >
+                            {deal.stageName}
                           </span>
                         </td>
 
@@ -550,7 +533,9 @@ export default function DealsPage() {
                         {/* Probability */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2">
-                            <span className="tabular-nums w-9 text-slate-700">{deal.probability}%</span>
+                            <span className="tabular-nums w-9 text-slate-700">
+                              {deal.probability}%
+                            </span>
                             <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                               <div
                                 className="h-full bg-black rounded-full transition-all"
@@ -573,7 +558,7 @@ export default function DealsPage() {
                           </span>
                         </td>
 
-                        {/* Action — Won / Lost / Delete */}
+                        {/* Action */}
                         <td className="py-3.5 px-4 text-right">
                           <div className="inline-flex items-center gap-1.5">
                             {!isClosed && (
@@ -589,7 +574,6 @@ export default function DealsPage() {
                                   <CheckCircle2 size={14} />
                                   Won
                                 </button>
-
                                 <button
                                   title="Mark as Lost"
                                   onClick={(e) => {
@@ -603,7 +587,6 @@ export default function DealsPage() {
                                 </button>
                               </>
                             )}
-
                             <button
                               title="Delete deal"
                               onClick={(e) => {
@@ -682,8 +665,7 @@ export default function DealsPage() {
               as{" "}
               <span className="font-medium text-slate-900">
                 {closeOutcome === "won" ? "Won" : "Lost"}
-              </span>
-              .
+              </span>.
             </p>
 
             <div className="flex gap-3 pt-2">
@@ -699,11 +681,7 @@ export default function DealsPage() {
                 disabled={closing}
                 className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors"
               >
-                {closing
-                  ? "Saving..."
-                  : closeOutcome === "won"
-                    ? "Mark Won"
-                    : "Mark Lost"}
+                {closing ? "Saving..." : closeOutcome === "won" ? "Mark Won" : "Mark Lost"}
               </button>
             </div>
           </m.div>
@@ -737,8 +715,7 @@ export default function DealsPage() {
               You&apos;re about to delete{" "}
               <span className="font-medium text-slate-900">
                 {deleteTarget.name || "this deal"}
-              </span>
-              .
+              </span>.
             </p>
 
             <div className="flex gap-3 pt-2">
@@ -783,15 +760,6 @@ export default function DealsPage() {
 
             {!importResult ? (
               <>
-                {/* ============================================
-                    FUTURE: CRM connect options go here.
-                    When HubSpot / Salesforce OAuth is built, add
-                    rows above the CSV option, e.g.:
-                      [ Connect HubSpot ]
-                      [ Connect Salesforce ]
-                    For now, CSV/Excel upload is the only working source.
-                ============================================ */}
-
                 <div className="space-y-3 text-sm">
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">1.</span>
@@ -805,12 +773,10 @@ export default function DealsPage() {
                       </button>
                     </div>
                   </div>
-
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">2.</span>
                     <p className="text-slate-700">Fill it with your deals (title, value, probability)</p>
                   </div>
-
                   <div className="flex items-start gap-3">
                     <span className="font-semibold text-slate-900">3.</span>
                     <p className="text-slate-700">Upload the file below (CSV or Excel)</p>
@@ -847,25 +813,19 @@ export default function DealsPage() {
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">
                   {importResult.imported} deals imported
                 </div>
-
                 {importResult.skipped > 0 && (
                   <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
                     {importResult.skipped} skipped
                     <ul className="mt-2 space-y-1 text-xs">
                       {importResult.skippedRows.slice(0, 10).map((s) => (
-                        <li key={s.row}>
-                          Row {s.row}: {s.reason}
-                        </li>
+                        <li key={s.row}>Row {s.row}: {s.reason}</li>
                       ))}
                       {importResult.skippedRows.length > 10 && (
-                        <li>
-                          …and {importResult.skippedRows.length - 10} more
-                        </li>
+                        <li>…and {importResult.skippedRows.length - 10} more</li>
                       )}
                     </ul>
                   </div>
                 )}
-
                 <button
                   onClick={closeImport}
                   className="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 transition-colors"
