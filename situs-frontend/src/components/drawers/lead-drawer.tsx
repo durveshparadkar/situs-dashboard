@@ -44,7 +44,7 @@ const SOURCE_OPTIONS = [
 ];
 
 function money(value: number) {
-  return `Rs. ${value.toLocaleString("en-IN")}`;
+  return `₹${value.toLocaleString("en-IN")}`;
 }
 
 export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
@@ -167,21 +167,21 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
       onClose={onClose}
       title={isEdit ? name || "Lead" : "New Lead"}
       subtitle="Lead Intelligence"
-      icon={<UserCircle2 className="w-4 h-4 text-slate-700" />}
+      icon={<UserCircle2 className="w-4 h-4 text-slate-600" />}
       footer={
         <div className="grid grid-cols-3 gap-2">
-          <button className="flex items-center justify-center gap-2 px-3 py-2 text-sm border rounded-lg hover:bg-slate-50">
+          <button className="flex items-center justify-center gap-2 px-3 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors">
             <Calendar size={14} />
             Demo
           </button>
-          <button className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-white bg-black rounded-lg hover:bg-slate-800">
+          <button className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-white bg-black rounded-lg hover:bg-slate-800 active:scale-[0.98] transition-all">
             <Mail size={14} />
             Email
           </button>
           {isEdit && (
             <button
               onClick={handleDelete}
-              className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+              className="flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
             >
               <Trash2 size={14} />
               Archive
@@ -191,27 +191,39 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
       }
     >
       <div className="px-6 py-6 space-y-6">
+
+        {/* STATS */}
         <div className="grid grid-cols-3 gap-3">
           <Stat label="Budget" value={money(numericBudget)} />
           <Stat label="Win %" value={`${probability}%`} />
           <Stat label="Expected" value={money(weighted)} highlight />
         </div>
 
+        {/* FORM */}
         <div className="space-y-4">
           <SectionTitle>Lead Details</SectionTitle>
 
           <Input label="Name" value={name} onChange={setName} />
           <Input label="Email" value={email} onChange={setEmail} />
           <Input label="Phone" value={phone} onChange={setPhone} />
-          <Input label="Interested Location" value={location} onChange={setLocation} />
-          <Input label="Budget" value={budget} onChange={setBudget} type="number" />
+          <Input
+            label="Interested Location"
+            value={location}
+            onChange={setLocation}
+          />
+          <Input
+            label="Budget (₹)"
+            value={budget}
+            onChange={setBudget}
+            type="number"
+          />
 
           <div>
-            <p className="text-xs text-slate-500 mb-1">Source</p>
+            <p className="text-xs text-slate-500 mb-1.5">Source</p>
             <select
               value={source}
-              onChange={(event) => setSource(event.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+              onChange={(e) => setSource(e.target.value)}
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
             >
               {SOURCE_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -224,16 +236,17 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
           <button
             onClick={handleSave}
             disabled={loading}
-            className="w-full py-2.5 text-sm text-white bg-black rounded-xl hover:bg-slate-800 transition disabled:opacity-60"
+            className="w-full py-2.5 text-sm text-white bg-black rounded-xl hover:bg-slate-800 active:scale-[0.98] transition-all disabled:opacity-60"
           >
             {loading ? "Saving..." : isEdit ? "Save Changes" : "Create Lead"}
           </button>
         </div>
 
+        {/* CONVERT */}
         {isEdit && (
           <button
             onClick={convertToDeal}
-            className="w-full flex items-center justify-center gap-2 py-2 text-sm text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition"
+            className="w-full flex items-center justify-center gap-2 py-2.5 text-sm text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 active:scale-[0.98] transition-all"
           >
             <ArrowRight size={14} />
             Convert to Deal
@@ -243,6 +256,8 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
     </DrawerShell>
   );
 }
+
+/* ================= UI PRIMITIVES ================= */
 
 function Stat({
   label,
@@ -256,18 +271,24 @@ function Stat({
   return (
     <div
       className={`p-3 rounded-xl border ${
-        highlight ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
+        highlight
+          ? "bg-emerald-50 border-emerald-200"
+          : "bg-white border-slate-200"
       }`}
     >
-      <p className="text-[11px] text-slate-400">{label}</p>
-      <p className="text-sm font-semibold text-slate-900">{value}</p>
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-slate-400 mb-1">
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-slate-900 tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">
+    <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">
       {children}
     </p>
   );
@@ -286,12 +307,12 @@ function Input({
 }) {
   return (
     <div>
-      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <p className="text-xs text-slate-500 mb-1.5">{label}</p>
       <input
         type={type}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
       />
     </div>
   );
