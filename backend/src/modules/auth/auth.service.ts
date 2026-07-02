@@ -6,6 +6,7 @@ import Organization from "../organizations/organization.model.js";
 import Role from "../rbac/role.model.js";
 import Pipeline from "../pipelines/pipeline.model.js";
 import { ApiError } from "../../utils/ApiError.js";
+import crypto from "crypto";
 
 /* ================= TYPES ================= */
 
@@ -336,6 +337,57 @@ if (!userAny.role || !userAny.roleId) {
     }
 
     return user;
+  }
+
+  /* ================= FORGOT PASSWORD ================= */
+  async forgotPassword(email: string): Promise<{ resetToken: string | null }> {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return { resetToken: null };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpiry = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+
+    return { resetToken: rawToken };
+  }
+
+  /* ================= RESET PASSWORD ================= */
+  async resetPassword(rawToken: string, newPassword: string): Promise<void> {
+    if (!rawToken || !newPassword) {
+      throw new Error("Token and new password are required");
+    }
+    if (newPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters");
+    }
+
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpiry: { $gt: new Date() },
+    }).select("+resetPasswordToken +resetPasswordExpiry");
+
+    if (!user) {
+      throw new Error("Invalid or expired reset token");
+    }
+
+    user.password = newPassword;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpiry = null;
+    await user.save();
   }
 
   /* ================= REFRESH ================= */
