@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -13,9 +13,10 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { apiFetch } from "@/lib/api";
 
 /* ================= GLOBAL UI ================= */
-/* Matches the dashboard: max-w-7xl, p-6, space-y-8, white motion cards. */
+
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
 );
@@ -39,7 +40,6 @@ const Card = ({
     whileHover={{ y: -3 }}
     className={`rounded-2xl border border-black/[0.06] bg-white shadow-sm p-5 transition ${className}`}
   >
-    {/* Card header — icon chip + title/description, same treatment as dashboard cards */}
     <div className="flex items-start gap-3 mb-5">
       <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-zinc-900/[0.03] ring-1 ring-black/[0.06] shrink-0">
         {icon}
@@ -60,8 +60,10 @@ const Card = ({
 
 /* ================= TYPES ================= */
 
+type Sensitivity = "Conservative" | "Balanced" | "Aggressive";
+
 type AISettings = {
-  sensitivity: "Conservative" | "Balanced" | "Aggressive";
+  sensitivity: Sensitivity;
 };
 
 type AlertSettings = {
@@ -74,6 +76,17 @@ type Stage = {
   name: string;
   days: number;
   conversion: number;
+};
+
+/* Backend organization response shape (only the fields we care about) */
+type OrgSettingsResponse = {
+  success: boolean;
+  data?: {
+    settings?: {
+      aiSensitivity?: Sensitivity;
+      alerts?: Partial<AlertSettings>;
+    };
+  };
 };
 
 const ALERT_LABELS: Record<keyof AlertSettings, { label: string; hint: string }> = {
@@ -102,34 +115,97 @@ export default function SettingsPage() {
     { name: "Negotiation", days: 12, conversion: 45 },
   ]);
 
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  /* ================= LOAD SETTINGS FROM BACKEND ================= */
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await apiFetch<OrgSettingsResponse>("/api/organizations/me");
+
+        const remoteSettings = res?.data?.settings;
+
+        if (remoteSettings?.aiSensitivity) {
+          setAI({ sensitivity: remoteSettings.aiSensitivity });
+        }
+
+        if (remoteSettings?.alerts) {
+          setAlerts((prev) => ({
+            ...prev,
+            ...remoteSettings.alerts,
+          }));
+        }
+      } catch (err) {
+        /* Non-fatal — settings page still works with local defaults,
+           just won't reflect previously saved values until this succeeds. */
+        console.error("Failed to load organization settings", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSettings();
+  }, []);
 
   /* ================= SAVE ================= */
 
   const handleSave = async () => {
     try {
       setSaving(true);
-      await new Promise((r) => setTimeout(r, 800));
+
+      await apiFetch("/api/organizations/me", {
+        method: "PATCH",
+        body: JSON.stringify({
+          settings: {
+            aiSensitivity: ai.sensitivity,
+            alerts: {
+              dealRisk: alerts.dealRisk,
+              pipeline: alerts.pipeline,
+              forecast: alerts.forecast,
+            },
+          },
+        }),
+      });
+
       toast.success("Settings saved");
-    } catch {
-      toast.error("Failed to save");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   };
 
-  const sensitivityHint: Record<AISettings["sensitivity"], string> = {
+  const sensitivityHint: Record<Sensitivity, string> = {
     Conservative: "Fewer alerts — only the most certain signals surface.",
     Balanced: "A measured mix of signal and noise. Recommended for most teams.",
     Aggressive: "Surface everything early — more alerts, more false positives.",
   };
+
+  /* ================= LOADING ================= */
+
+  if (loading) {
+    return (
+      <PageContainer>
+        <div className="space-y-2 animate-pulse">
+          <div className="h-4 w-16 bg-slate-200 rounded-md" />
+          <div className="h-7 w-40 bg-slate-200 rounded-md" />
+        </div>
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-32 bg-slate-100 rounded-2xl animate-pulse" />
+        ))}
+      </PageContainer>
+    );
+  }
 
   /* ================= UI ================= */
 
   return (
     <PageContainer>
 
-      {/* HEADER — matches dashboard header scale + a primary action */}
+      {/* HEADER */}
       <div className="flex justify-between items-start">
         <div>
           <button
@@ -155,7 +231,7 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* PROFILE */}
+      {/* PROFILE — not yet wired to backend (no user-update endpoint confirmed) */}
       <Card
         title="Profile"
         description="Your account details and how you appear across Situs."
@@ -175,9 +251,12 @@ export default function SettingsPage() {
             <Input placeholder="e.g. Founder" />
           </Field>
         </div>
+        <p className="text-[11px] text-zinc-400 mt-3">
+          Profile editing is coming soon.
+        </p>
       </Card>
 
-      {/* AI INTELLIGENCE */}
+      {/* AI INTELLIGENCE — wired to backend */}
       <Card
         title="AI Intelligence"
         description="Tune how aggressively the engine surfaces risks and actions."
@@ -189,7 +268,7 @@ export default function SettingsPage() {
             return (
               <button
                 key={opt}
-                onClick={() => setAI((p) => ({ ...p, sensitivity: opt }))}
+                onClick={() => setAI({ sensitivity: opt })}
                 className={
                   "text-left rounded-xl border p-4 transition-all " +
                   (active
@@ -221,7 +300,7 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      {/* ALERTS */}
+      {/* ALERTS — wired to backend */}
       <Card
         title="Alerts"
         description="Choose which signals generate alerts on your dashboard."
@@ -247,13 +326,12 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      {/* PIPELINE */}
+      {/* PIPELINE — local only for now, backend model mismatch to resolve later */}
       <Card
         title="Pipeline"
         description="Set the expected duration and conversion rate for each stage."
         icon={<Workflow size={17} className="text-zinc-700" strokeWidth={2} />}
       >
-        {/* column headers */}
         <div className="hidden sm:grid grid-cols-[1fr_auto_auto] gap-4 px-1 pb-2 mb-1 border-b border-black/[0.05]">
           <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-zinc-400">
             Stage
@@ -303,6 +381,9 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
+        <p className="text-[11px] text-zinc-400 mt-3">
+          Pipeline stage sync is coming soon.
+        </p>
       </Card>
 
       {/* SYSTEM */}
