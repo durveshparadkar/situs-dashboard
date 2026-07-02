@@ -324,6 +324,15 @@ useEffect(() => {
           >
             🔒 Secured with industry-standard encryption
           </motion.p>
+           
+           <div className="text-right -mt-2">
+  <span
+    onClick={() => router.push("/forgot-password")}
+    className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer hover:underline"
+  >
+    Forgot password?
+  </span>
+</div>
 
           <p className="text-sm text-center text-slate-500">
             Don&apos;t have an account?{" "}
