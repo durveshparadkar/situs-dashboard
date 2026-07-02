@@ -31,11 +31,11 @@ const orgCache: RequestHandler = cache(
    CREATE ORGANIZATION
 ===================================================== */
 
-router.post(
-  "/",
+router.patch(
+  "/me",
   protect as RequestHandler,
-  authorize(PERMISSIONS.CREATE_ORG) as RequestHandler,
-  OrganizationController.create as RequestHandler
+  authorize(PERMISSIONS.UPDATE_ORG) as RequestHandler,
+  OrganizationController.update as RequestHandler
 );
 
 /* =====================================================
