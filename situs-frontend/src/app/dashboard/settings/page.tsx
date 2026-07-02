@@ -38,7 +38,7 @@ const Card = ({
     initial={{ opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
     whileHover={{ y: -3 }}
-    className={`rounded-2xl border border-black/[0.06] bg-white shadow-sm p-5 transition ${className}`}
+    className={ `rounded-2xl border border-black/[0.06] bg-white shadow-sm p-5 transition ${className}` }
   >
     <div className="flex items-start gap-3 mb-5">
       <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-zinc-900/[0.03] ring-1 ring-black/[0.06] shrink-0">
@@ -78,10 +78,29 @@ type Stage = {
   conversion: number;
 };
 
-/* Backend organization response shape (only the fields we care about) */
+type ProfileState = {
+  userId: string;
+  fullName: string;
+  email: string;
+  company: string;
+  role: string;
+};
+
+/* Backend response shapes (only fields we care about) */
+type UserMeResponse = {
+  success: boolean;
+  data?: {
+    _id?: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  };
+};
+
 type OrgSettingsResponse = {
   success: boolean;
   data?: {
+    name?: string;
     settings?: {
       aiSensitivity?: Sensitivity;
       alerts?: Partial<AlertSettings>;
@@ -95,10 +114,30 @@ const ALERT_LABELS: Record<keyof AlertSettings, { label: string; hint: string }>
   forecast: { label: "Forecast", hint: "Alert when forecast confidence drops" },
 };
 
+/* Friendly role labels for display */
+function friendlyRole(role: string): string {
+  const map: Record<string, string> = {
+    ORG_ADMIN: "Admin",
+    SUPER_ADMIN: "Super Admin",
+    MANAGER: "Manager",
+    AGENT: "Agent",
+    USER: "Member",
+  };
+  return map[role.toUpperCase()] ?? role;
+}
+
 /* ================= PAGE ================= */
 
 export default function SettingsPage() {
   const router = useRouter();
+
+  const [profile, setProfile] = useState<ProfileState>({
+    userId: "",
+    fullName: "",
+    email: "",
+    company: "",
+    role: "",
+  });
 
   const [ai, setAI] = useState<AISettings>({ sensitivity: "Balanced" });
 
@@ -118,35 +157,45 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  /* ================= LOAD SETTINGS FROM BACKEND ================= */
+  /* ================= LOAD PROFILE + ORG SETTINGS ================= */
 
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadAll = async () => {
       try {
-        const res = await apiFetch<OrgSettingsResponse>("/api/organizations/me");
+        const [userRes, orgRes] = await Promise.all([
+          apiFetch<UserMeResponse>("/api/users/me"),
+          apiFetch<OrgSettingsResponse>("/api/organizations/me"),
+        ]);
 
-        const remoteSettings = res?.data?.settings;
+        const u = userRes?.data;
+        const o = orgRes?.data;
 
-        if (remoteSettings?.aiSensitivity) {
-          setAI({ sensitivity: remoteSettings.aiSensitivity });
+        setProfile({
+          userId: u?._id ?? "",
+          fullName: u?.fullName ?? "",
+          email: u?.email ?? "",
+          company: o?.name ?? "",
+          role: u?.role ? friendlyRole(u.role) : "",
+        });
+
+        if (o?.settings?.aiSensitivity) {
+          setAI({ sensitivity: o.settings.aiSensitivity });
         }
 
-        if (remoteSettings?.alerts) {
+        if (o?.settings?.alerts) {
           setAlerts((prev) => ({
             ...prev,
-            ...remoteSettings.alerts,
+            ...o.settings?.alerts,
           }));
         }
       } catch (err) {
-        /* Non-fatal — settings page still works with local defaults,
-           just won't reflect previously saved values until this succeeds. */
-        console.error("Failed to load organization settings", err);
+        console.error("Failed to load settings", err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadSettings();
+    loadAll();
   }, []);
 
   /* ================= SAVE ================= */
@@ -155,19 +204,38 @@ export default function SettingsPage() {
     try {
       setSaving(true);
 
-      await apiFetch("/api/organizations/me", {
-        method: "PATCH",
-        body: JSON.stringify({
-          settings: {
-            aiSensitivity: ai.sensitivity,
-            alerts: {
-              dealRisk: alerts.dealRisk,
-              pipeline: alerts.pipeline,
-              forecast: alerts.forecast,
+      /* Run profile + org updates in parallel — independent resources */
+      const requests: Promise<unknown>[] = [];
+
+      /* Only update the user if we have their ID and a name to save */
+      if (profile.userId && profile.fullName.trim()) {
+        requests.push(
+          apiFetch(`/api/users/${profile.userId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ fullName: profile.fullName.trim() }),
+          })
+        );
+      }
+
+      /* Org update covers company name + AI sensitivity + alerts together */
+      requests.push(
+        apiFetch("/api/organizations/me", {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...(profile.company.trim() && { name: profile.company.trim() }),
+            settings: {
+              aiSensitivity: ai.sensitivity,
+              alerts: {
+                dealRisk: alerts.dealRisk,
+                pipeline: alerts.pipeline,
+                forecast: alerts.forecast,
+              },
             },
-          },
-        }),
-      });
+          }),
+        })
+      );
+
+      await Promise.all(requests);
 
       toast.success("Settings saved");
     } catch (err) {
@@ -231,7 +299,7 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* PROFILE — not yet wired to backend (no user-update endpoint confirmed) */}
+      {/* PROFILE — wired to backend */}
       <Card
         title="Profile"
         description="Your account details and how you appear across Situs."
@@ -239,20 +307,29 @@ export default function SettingsPage() {
       >
         <div className="grid md:grid-cols-2 gap-4">
           <Field label="Full name">
-            <Input placeholder="e.g. Durvesh Paradkar" />
+            <Input
+              value={profile.fullName}
+              onChange={(v) => setProfile((p) => ({ ...p, fullName: v }))}
+              placeholder="e.g. Durvesh Paradkar"
+            />
           </Field>
           <Field label="Email">
-            <Input placeholder="you@company.com" />
+            <Input value={profile.email} readOnly />
           </Field>
           <Field label="Company">
-            <Input placeholder="Company name" />
+            <Input
+              value={profile.company}
+              onChange={(v) => setProfile((p) => ({ ...p, company: v }))}
+              placeholder="Company name"
+            />
           </Field>
           <Field label="Role">
-            <Input placeholder="e.g. Founder" />
+            <Input value={profile.role} readOnly />
           </Field>
         </div>
         <p className="text-[11px] text-zinc-400 mt-3">
-          Profile editing is coming soon.
+          Email and role can&apos;t be changed here. Contact support if you need
+          to update them.
         </p>
       </Card>
 
@@ -326,7 +403,7 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      {/* PIPELINE — local only for now, backend model mismatch to resolve later */}
+      {/* PIPELINE — local only for now */}
       <Card
         title="Pipeline"
         description="Set the expected duration and conversion rate for each stage."
@@ -418,17 +495,23 @@ function Input({
   value,
   onChange,
   placeholder,
+  readOnly = false,
 }: {
   value?: string;
   onChange?: (v: string) => void;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange?.(e.target.value)}
       placeholder={placeholder}
-      className="w-full px-3 py-2 border border-black/[0.10] rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 transition"
+      readOnly={readOnly}
+      className={
+        "w-full px-3 py-2 border border-black/[0.10] rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 transition " +
+        (readOnly ? "bg-zinc-50 text-zinc-500 cursor-not-allowed" : "")
+      }
     />
   );
 }
