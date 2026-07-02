@@ -123,14 +123,23 @@ const updateOrganizationSchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
     settings: z
+  .object({
+    timezone:     z.string().trim().max(50).optional(),
+    currency:     z.string().trim().length(3).optional(),
+    locale:       z.string().trim().max(20).optional(),
+    weekStartsOn: z.number().int().min(0).max(6).optional(),
+    aiSensitivity: z.enum(["Conservative", "Balanced", "Aggressive"]).optional(),
+    alerts: z
       .object({
-        timezone:     z.string().trim().max(50).optional(),
-        currency:     z.string().trim().length(3).optional(),
-        locale:       z.string().trim().max(20).optional(),
-        weekStartsOn: z.number().int().min(0).max(6).optional(),
+        dealRisk: z.boolean().optional(),
+        pipeline: z.boolean().optional(),
+        forecast: z.boolean().optional(),
       })
       .strict()
       .optional(),
+  })
+  .strict()
+  .optional(),
     branding: z
       .object({
         logoUrl:      z.string().url().max(2000).optional(),
