@@ -284,26 +284,26 @@ useEffect(() => {
               />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-slate-500">Password</p>
-                <span
-                  onClick={() => router.push("/forgot-password")}
-                  className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer hover:underline"
-                >
-                  Forgot password?
-                </span>
-              </div>
-              <input
-                type="password"
-                placeholder="••••••••"
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                autoComplete="current-password"
-              />
-            </div>
+           <div>
+  <p className="text-xs text-slate-500 mb-1">Password</p>
+  <input
+    type="password"
+    placeholder="••••••••"
+    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+    autoComplete="current-password"
+  />
+  <div className="text-right mt-1.5">
+    <span
+      onClick={() => router.push("/forgot-password")}
+      className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer hover:underline"
+    >
+      Forgot password?
+    </span>
+  </div>
+</div>
           </motion.div>
 
           <motion.button
