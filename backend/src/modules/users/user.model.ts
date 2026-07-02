@@ -18,9 +18,6 @@ export interface IUser {
   organizationId: Types.ObjectId;
   roleId: Types.ObjectId;
 
-  /* Denormalized role string for fast permission checks in middleware.
-     Kept in sync with roleId. Reads happen on every authenticated request,
-     so we store the string directly to avoid a Role lookup per request. */
   role: string;
 
   managerId?: Types.ObjectId | null;
@@ -30,10 +27,12 @@ export interface IUser {
 
   lastLoginAt?: Date | null;
 
+  resetPasswordToken?: string | null;
+  resetPasswordExpiry?: Date | null;
+
   createdAt: Date;
   updatedAt: Date;
 
-  /* ================= METHODS ================= */
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -63,7 +62,7 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: true,
       minlength: 6,
-      select: false, // 🔥 never expose
+      select: false,
     },
 
     organizationId: {
@@ -93,8 +92,6 @@ const userSchema = new Schema<IUser>(
       index: true,
     },
 
-    /* ================= SECURITY ================= */
-
     isActive: {
       type: Boolean,
       default: true,
@@ -106,11 +103,21 @@ const userSchema = new Schema<IUser>(
       default: false,
     },
 
-    /* ================= TRACKING ================= */
-
     lastLoginAt: {
       type: Date,
       default: null,
+    },
+
+    resetPasswordToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    resetPasswordExpiry: {
+      type: Date,
+      default: null,
+      select: false,
     },
   },
   {
@@ -119,7 +126,7 @@ const userSchema = new Schema<IUser>(
 );
 
 /* =====================================================
-   🔒 UNIQUE CONSTRAINT (MULTI-TENANT SAFE)
+   UNIQUE CONSTRAINT (MULTI-TENANT SAFE)
 ===================================================== */
 
 userSchema.index(
@@ -128,18 +135,14 @@ userSchema.index(
 );
 
 /* =====================================================
-   ⚡ PERFORMANCE INDEXES
+   PERFORMANCE INDEXES
 ===================================================== */
 
 userSchema.index({ organizationId: 1, roleId: 1 });
 userSchema.index({ organizationId: 1, managerId: 1 });
 
 /* =====================================================
-   🧠 NORMALIZATION + 🔐 PASSWORD HASHING
-   CRITICAL: password must be hashed here before save. Without this,
-   passwords are stored in plaintext and comparePassword() (which uses
-   bcrypt.compare against a real hash) always fails — this was the
-   root cause of "Invalid credentials" on every login attempt.
+   NORMALIZATION + PASSWORD HASHING
 ===================================================== */
 
 userSchema.pre("save", async function () {
@@ -154,7 +157,7 @@ userSchema.pre("save", async function () {
 });
 
 /* =====================================================
-   🔐 PASSWORD COMPARISON METHOD
+   PASSWORD COMPARISON METHOD
 ===================================================== */
 
 userSchema.methods.comparePassword = async function (
@@ -164,8 +167,7 @@ userSchema.methods.comparePassword = async function (
 };
 
 /* =====================================================
-   🛡️ GLOBAL SAFE TRANSFORM
-   (REMOVES SENSITIVE FIELDS)
+   GLOBAL SAFE TRANSFORM
 ===================================================== */
 
 userSchema.set("toJSON", {
@@ -178,7 +180,7 @@ userSchema.set("toJSON", {
 } as any);
 
 /* =====================================================
-   🧱 STATIC HELPERS (ENTERPRISE)
+   STATIC HELPERS
 ===================================================== */
 
 userSchema.statics.findByEmailAndOrg = function (
