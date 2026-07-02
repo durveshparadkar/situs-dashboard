@@ -104,6 +104,15 @@ const updateOrganizationSchema = z
         currency: z.string().trim().length(3).optional(),
         locale: z.string().trim().max(20).optional(),
         weekStartsOn: z.number().int().min(0).max(6).optional(),
+        aiSensitivity: z.enum(["Conservative", "Balanced", "Aggressive"]).optional(),
+        alerts: z
+            .object({
+            dealRisk: z.boolean().optional(),
+            pipeline: z.boolean().optional(),
+            forecast: z.boolean().optional(),
+        })
+            .strict()
+            .optional(),
     })
         .strict()
         .optional(),

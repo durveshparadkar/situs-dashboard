@@ -187,6 +187,9 @@ class AuthController {
             ...(parsed.data.organizationName !== undefined && {
                 organizationName: parsed.data.organizationName,
             }),
+            ...(parsed.data.fullName !== undefined && {
+                fullName: parsed.data.fullName,
+            }),
         }));
         setAuthCookies(res, result);
         dbLogger.info(`User registered: email=${parsed.data.email} ${safeReqDescriptor(req)}`);

@@ -29,6 +29,7 @@ import alertRoutes from "./modules/alerts/alert.routes.js";
 import analyticsRoutes from "./modules/analytics/analytics.routes.js";
 import intelligenceRoutes from "./modules/intelligence/intelligence.routes.js";
 import forecastRoutes from "./modules/forecast/forecast.routes.js";
+import organizationRoutes from "./modules/organizations/organization.routes.js";
 /* ===============================
    MIDDLEWARES
 =============================== */
@@ -133,6 +134,7 @@ app.use("/api/alerts", alertRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/intelligence", intelligenceRoutes);
 app.use("/api/forecast", forecastRoutes);
+app.use("/api/organizations", organizationRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */

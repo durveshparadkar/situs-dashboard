@@ -70,6 +70,16 @@ const organizationSchema = new Schema({
     settings: {
         timezone: { type: String, default: "UTC" },
         currency: { type: String, default: "USD" },
+        aiSensitivity: {
+            type: String,
+            enum: ["Conservative", "Balanced", "Aggressive"],
+            default: "Balanced",
+        },
+        alerts: {
+            dealRisk: { type: Boolean, default: true },
+            pipeline: { type: Boolean, default: true },
+            forecast: { type: Boolean, default: true },
+        },
     },
 }, {
     timestamps: true,

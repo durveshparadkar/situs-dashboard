@@ -1,6 +1,5 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, } from "mongoose";
 import bcrypt from "bcryptjs";
-
 /* =====================================================
    SCHEMA
 ===================================================== */
@@ -12,11 +11,16 @@ const userSchema = new Schema({
         trim: true,
         index: true,
     },
+    fullName: {
+        type: String,
+        trim: true,
+        default: "",
+    },
     password: {
         type: String,
         required: true,
         minlength: 6,
-        select: false, // 🔥 never expose
+        select: false,
     },
     organizationId: {
         type: Schema.Types.ObjectId,
@@ -41,7 +45,6 @@ const userSchema = new Schema({
         default: null,
         index: true,
     },
-    /* ================= SECURITY ================= */
     isActive: {
         type: Boolean,
         default: true,
@@ -51,54 +54,52 @@ const userSchema = new Schema({
         type: Boolean,
         default: false,
     },
-    /* ================= TRACKING ================= */
     lastLoginAt: {
         type: Date,
         default: null,
     },
+    resetPasswordToken: {
+        type: String,
+        default: null,
+        select: false,
+    },
+    resetPasswordExpiry: {
+        type: Date,
+        default: null,
+        select: false,
+    },
 }, {
     timestamps: true,
 });
-
 /* =====================================================
-   🔒 UNIQUE CONSTRAINT (MULTI-TENANT SAFE)
+   UNIQUE CONSTRAINT (MULTI-TENANT SAFE)
 ===================================================== */
 userSchema.index({ email: 1, organizationId: 1 }, { unique: true });
-
 /* =====================================================
-   ⚡ PERFORMANCE INDEXES
+   PERFORMANCE INDEXES
 ===================================================== */
 userSchema.index({ organizationId: 1, roleId: 1 });
 userSchema.index({ organizationId: 1, managerId: 1 });
-
 /* =====================================================
-   🧠 NORMALIZATION + 🔐 PASSWORD HASHING
-   CRITICAL: password is hashed here before save. Without this,
-   passwords are stored in plaintext and comparePassword() (which
-   uses bcrypt.compare against a real hash) always fails — this was
-   the root cause of "Invalid credentials" on every login attempt.
+   NORMALIZATION + PASSWORD HASHING
 ===================================================== */
 userSchema.pre("save", async function () {
     if (this.email) {
         this.email = this.email.trim().toLowerCase();
     }
-
     if (this.isModified("password")) {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
     }
 });
-
 /* =====================================================
-   🔐 PASSWORD COMPARISON METHOD
+   PASSWORD COMPARISON METHOD
 ===================================================== */
 userSchema.methods.comparePassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
 };
-
 /* =====================================================
-   🛡️ GLOBAL SAFE TRANSFORM
-   (REMOVES SENSITIVE FIELDS)
+   GLOBAL SAFE TRANSFORM
 ===================================================== */
 userSchema.set("toJSON", {
     transform: function (_doc, ret) {
@@ -108,9 +109,8 @@ userSchema.set("toJSON", {
     },
     virtuals: true,
 });
-
 /* =====================================================
-   🧱 STATIC HELPERS (ENTERPRISE)
+   STATIC HELPERS
 ===================================================== */
 userSchema.statics.findByEmailAndOrg = function (email, organizationId) {
     return this.findOne({
@@ -118,11 +118,10 @@ userSchema.statics.findByEmailAndOrg = function (email, organizationId) {
         organizationId,
     }).select("+password");
 };
-
 /* =====================================================
    MODEL
 ===================================================== */
 const User = mongoose.models.User ||
     mongoose.model("User", userSchema);
-
 export default User;
+//# sourceMappingURL=user.model.js.map
