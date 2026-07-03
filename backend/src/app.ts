@@ -46,6 +46,7 @@ import { requestLogger } from "./shared/middlewares/logger.middleware.js";
 import errorMiddleware from "./shared/middlewares/error.middleware.js";
 import { apiLimiter } from "./shared/middlewares/rateLimit.middleware.js";
 import { serverAdapter } from "./config/queue.ui.js";
+import publicDemoRoutes from "./modules/leads/publicDemo.routes.js";
 
 const app = express();
 
@@ -167,6 +168,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/intelligence", intelligenceRoutes);
 app.use("/api/forecast", forecastRoutes);
 app.use("/api/organizations", organizationRoutes);
+app.use("/api/public", publicDemoRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
