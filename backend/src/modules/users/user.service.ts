@@ -24,6 +24,7 @@ interface UpdateUserInput {
   roleId?: string;
   managerId?: string | null;
   isActive?: boolean;
+  fullName?: string;
 }
 
 /* ================= HELPERS ================= */
@@ -148,6 +149,10 @@ class UserService {
 
     if (data.email) {
       updateData.email = data.email.toLowerCase();
+    }
+
+    if (data.fullName !== undefined) {
+      updateData.fullName = data.fullName;
     }
 
     if (data.roleId) {
