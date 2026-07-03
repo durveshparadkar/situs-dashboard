@@ -1,4 +1,4 @@
-export const DEMO_URL = "https://calendly.com/durvesh-situsrevenue/30min"; 
+export const DEMO_URL = "/demo"; 
 export const APP_URL = "https://app.situsrevenue.com";
 export const SIGNUP_URL = APP_URL + "/signup";
 
