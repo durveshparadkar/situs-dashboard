@@ -175,7 +175,7 @@ export default function SettingsPage() {
     try {
       setLoadError(false);
       const [userRes, orgRes] = await Promise.all([
-        apiFetch<UserMeResponse>("/api/users/me"),
+        apiFetch<UserMeResponse>("/api/auth/me"),
         apiFetch<OrgSettingsResponse>("/api/organizations/me"),
       ]);
 
