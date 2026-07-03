@@ -120,6 +120,7 @@ const updateUserSchema = z
     roleId:    objectIdSchema.optional(),
     managerId: objectIdSchema.nullable().optional(),
     isActive:  z.boolean().optional(),
+    fullName:  z.string().trim().max(USER_CONFIG.caps.name).optional(),
     firstName: z.string().trim().max(USER_CONFIG.caps.name).optional(),
     lastName:  z.string().trim().max(USER_CONFIG.caps.name).optional(),
     phone:     z.string().trim().max(30).optional(),
@@ -517,15 +518,16 @@ class UserController {
 
     /* Build update with conditional spreads */
     const updateData = {
-      ...(validated.email     !== undefined && { email:     validated.email }),
-      ...(validated.roleId    !== undefined && { roleId:    validated.roleId }),
-      ...(validated.managerId !== undefined && { managerId: validated.managerId }),
-      ...(validated.isActive  !== undefined && { isActive:  validated.isActive }),
-      ...(validated.firstName !== undefined && { firstName: validated.firstName }),
-      ...(validated.lastName  !== undefined && { lastName:  validated.lastName }),
-      ...(validated.phone     !== undefined && { phone:     validated.phone }),
-      updatedBy: actor.userId,
-    };
+  ...(validated.email     !== undefined && { email:     validated.email }),
+  ...(validated.roleId    !== undefined && { roleId:    validated.roleId }),
+  ...(validated.managerId !== undefined && { managerId: validated.managerId }),
+  ...(validated.isActive  !== undefined && { isActive:  validated.isActive }),
+  ...(validated.fullName  !== undefined && { fullName:  validated.fullName }),
+  ...(validated.firstName !== undefined && { firstName: validated.firstName }),
+  ...(validated.lastName  !== undefined && { lastName:  validated.lastName }),
+  ...(validated.phone     !== undefined && { phone:     validated.phone }),
+  updatedBy: actor.userId,
+};
 
     const user = await userService.update(id, updateData as never, buildServiceUser(actor));
 
