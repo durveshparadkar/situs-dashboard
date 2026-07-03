@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   Brain,
@@ -10,6 +10,7 @@ import {
   Workflow,
   ShieldCheck,
   Check,
+  AlertCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -38,7 +39,7 @@ const Card = ({
     initial={{ opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
     whileHover={{ y: -3 }}
-    className={ `rounded-2xl border border-black/[0.06] bg-white shadow-sm p-5 transition ${className}` }
+    className={`rounded-2xl border border-black/[0.06] bg-white shadow-sm p-5 transition ${className}`}
   >
     <div className="flex items-start gap-3 mb-5">
       <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-zinc-900/[0.03] ring-1 ring-black/[0.06] shrink-0">
@@ -86,6 +87,14 @@ type ProfileState = {
   role: string;
 };
 
+/* Snapshot of everything save-able, used to detect unsaved changes */
+type SavableSnapshot = {
+  fullName: string;
+  company: string;
+  sensitivity: Sensitivity;
+  alerts: AlertSettings;
+};
+
 /* Backend response shapes (only fields we care about) */
 type UserMeResponse = {
   success: boolean;
@@ -114,7 +123,6 @@ const ALERT_LABELS: Record<keyof AlertSettings, { label: string; hint: string }>
   forecast: { label: "Forecast", hint: "Alert when forecast confidence drops" },
 };
 
-/* Friendly role labels for display */
 function friendlyRole(role: string): string {
   const map: Record<string, string> = {
     ORG_ADMIN: "Admin",
@@ -124,6 +132,13 @@ function friendlyRole(role: string): string {
     USER: "Member",
   };
   return map[role.toUpperCase()] ?? role;
+}
+
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
 /* ================= PAGE ================= */
@@ -155,60 +170,92 @@ export default function SettingsPage() {
   ]);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+
+  /* Snapshot of last-loaded/last-saved state — used to detect unsaved changes */
+  const [savedSnapshot, setSavedSnapshot] = useState<SavableSnapshot | null>(null);
 
   /* ================= LOAD PROFILE + ORG SETTINGS ================= */
 
+  const loadAll = async () => {
+    try {
+      setLoadError(false);
+
+      const [userRes, orgRes] = await Promise.all([
+        apiFetch<UserMeResponse>("/api/users/me"),
+        apiFetch<OrgSettingsResponse>("/api/organizations/me"),
+      ]);
+
+      const u = userRes?.data;
+      const o = orgRes?.data;
+
+      const loadedFullName = u?.fullName ?? "";
+      const loadedCompany = o?.name ?? "";
+      const loadedSensitivity = o?.settings?.aiSensitivity ?? "Balanced";
+      const loadedAlerts: AlertSettings = {
+        dealRisk: o?.settings?.alerts?.dealRisk ?? true,
+        pipeline: o?.settings?.alerts?.pipeline ?? true,
+        forecast: o?.settings?.alerts?.forecast ?? true,
+      };
+
+      setProfile({
+        userId: u?._id ?? "",
+        fullName: loadedFullName,
+        email: u?.email ?? "",
+        company: loadedCompany,
+        role: u?.role ? friendlyRole(u.role) : "",
+      });
+
+      setAI({ sensitivity: loadedSensitivity });
+      setAlerts(loadedAlerts);
+
+      /* Record this as the "saved" baseline for dirty-checking */
+      setSavedSnapshot({
+        fullName: loadedFullName,
+        company: loadedCompany,
+        sensitivity: loadedSensitivity,
+        alerts: loadedAlerts,
+      });
+    } catch (err) {
+      console.error("Failed to load settings", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadAll = async () => {
-      try {
-        const [userRes, orgRes] = await Promise.all([
-          apiFetch<UserMeResponse>("/api/users/me"),
-          apiFetch<OrgSettingsResponse>("/api/organizations/me"),
-        ]);
-
-        const u = userRes?.data;
-        const o = orgRes?.data;
-
-        setProfile({
-          userId: u?._id ?? "",
-          fullName: u?.fullName ?? "",
-          email: u?.email ?? "",
-          company: o?.name ?? "",
-          role: u?.role ? friendlyRole(u.role) : "",
-        });
-
-        if (o?.settings?.aiSensitivity) {
-          setAI({ sensitivity: o.settings.aiSensitivity });
-        }
-
-        if (o?.settings?.alerts) {
-          setAlerts((prev) => ({
-            ...prev,
-            ...o.settings?.alerts,
-          }));
-        }
-      } catch (err) {
-        console.error("Failed to load settings", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadAll();
+     
   }, []);
+
+  /* ================= DIRTY STATE ================= */
+
+  const isDirty = useMemo(() => {
+    if (!savedSnapshot) return false;
+    return (
+      profile.fullName.trim() !== savedSnapshot.fullName ||
+      profile.company.trim() !== savedSnapshot.company ||
+      ai.sensitivity !== savedSnapshot.sensitivity ||
+      alerts.dealRisk !== savedSnapshot.alerts.dealRisk ||
+      alerts.pipeline !== savedSnapshot.alerts.pipeline ||
+      alerts.forecast !== savedSnapshot.alerts.forecast
+    );
+  }, [profile.fullName, profile.company, ai.sensitivity, alerts, savedSnapshot]);
 
   /* ================= SAVE ================= */
 
   const handleSave = async () => {
+    if (!isDirty) return;
+
     try {
       setSaving(true);
 
-      /* Run profile + org updates in parallel — independent resources */
       const requests: Promise<unknown>[] = [];
 
-      /* Only update the user if we have their ID and a name to save */
-      if (profile.userId && profile.fullName.trim()) {
+      if (profile.userId && profile.fullName.trim() !== savedSnapshot?.fullName) {
         requests.push(
           apiFetch(`/api/users/${profile.userId}`, {
             method: "PATCH",
@@ -217,7 +264,6 @@ export default function SettingsPage() {
         );
       }
 
-      /* Org update covers company name + AI sensitivity + alerts together */
       requests.push(
         apiFetch("/api/organizations/me", {
           method: "PATCH",
@@ -237,6 +283,15 @@ export default function SettingsPage() {
 
       await Promise.all(requests);
 
+      /* Update the baseline snapshot to the just-saved values */
+      setSavedSnapshot({
+        fullName: profile.fullName.trim(),
+        company: profile.company.trim(),
+        sensitivity: ai.sensitivity,
+        alerts: { ...alerts },
+      });
+
+      setLastSavedAt(new Date());
       toast.success("Settings saved");
     } catch (err) {
       console.error(err);
@@ -290,21 +345,80 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-60"
-        >
-          {saving ? "Saving..." : "Save changes"}
-        </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving..." : "Save changes"}
+          </button>
+
+          <AnimatePresence mode="wait">
+            {!isDirty && lastSavedAt && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="text-[11px] text-emerald-600 flex items-center gap-1"
+              >
+                <Check size={11} strokeWidth={3} />
+                Saved {lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </motion.p>
+            )}
+            {isDirty && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-[11px] text-amber-600"
+              >
+                Unsaved changes
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
-      {/* PROFILE — wired to backend */}
+      {/* LOAD ERROR BANNER */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle size={16} className="text-red-600 shrink-0" />
+            <p className="text-sm text-red-700">
+              Couldn&apos;t load your settings. Some fields may be empty.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setLoading(true);
+              loadAll();
+            }}
+            className="text-sm font-medium text-red-700 hover:text-red-900 underline shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* PROFILE */}
       <Card
         title="Profile"
         description="Your account details and how you appear across Situs."
         icon={<User size={17} className="text-zinc-700" strokeWidth={2} />}
       >
+        <div className="flex items-center gap-4 mb-5">
+          <div className="flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 ring-1 ring-emerald-200/60 text-emerald-700 font-semibold text-lg shrink-0">
+            {initialsFromName(profile.fullName || profile.email)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold text-zinc-900 truncate">
+              {profile.fullName || "No name set yet"}
+            </p>
+            <p className="text-[12px] text-zinc-500 truncate">{profile.email}</p>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-4">
           <Field label="Full name">
             <Input
@@ -333,7 +447,7 @@ export default function SettingsPage() {
         </p>
       </Card>
 
-      {/* AI INTELLIGENCE — wired to backend */}
+      {/* AI INTELLIGENCE */}
       <Card
         title="AI Intelligence"
         description="Tune how aggressively the engine surfaces risks and actions."
@@ -377,7 +491,7 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      {/* ALERTS — wired to backend */}
+      {/* ALERTS */}
       <Card
         title="Alerts"
         description="Choose which signals generate alerts on your dashboard."
