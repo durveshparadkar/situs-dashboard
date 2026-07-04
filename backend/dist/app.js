@@ -37,6 +37,7 @@ import { requestLogger } from "./shared/middlewares/logger.middleware.js";
 import errorMiddleware from "./shared/middlewares/error.middleware.js";
 import { apiLimiter } from "./shared/middlewares/rateLimit.middleware.js";
 import { serverAdapter } from "./config/queue.ui.js";
+import publicDemoRoutes from "./modules/leads/publicDemo.routes.js";
 const app = express();
 /* ===============================
    ENV
@@ -72,6 +73,7 @@ const allowedOrigins = [
     "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
     "https://app.situsrevenue.com",
     "https://situsrevenue.com",
+    "https://www.situsrevenue.com",
 ];
 app.use(cors({
     origin: allowedOrigins,
@@ -135,6 +137,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/intelligence", intelligenceRoutes);
 app.use("/api/forecast", forecastRoutes);
 app.use("/api/organizations", organizationRoutes);
+app.use("/api/public", publicDemoRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */

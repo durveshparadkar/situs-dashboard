@@ -93,6 +93,9 @@ class UserService {
         if (data.email) {
             updateData.email = data.email.toLowerCase();
         }
+        if (data.fullName !== undefined) {
+            updateData.fullName = data.fullName;
+        }
         if (data.roleId) {
             const role = await Role.findOne({
                 _id: toObjectId(data.roleId),

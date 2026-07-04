@@ -17,7 +17,7 @@ const orgCache = cache((req) => {
 /* =====================================================
    CREATE ORGANIZATION
 ===================================================== */
-router.post("/", protect, authorize(PERMISSIONS.CREATE_ORG), OrganizationController.create);
+router.patch("/me", protect, authorize(PERMISSIONS.UPDATE_ORG), OrganizationController.update);
 /* =====================================================
    GET CURRENT ORGANIZATION
 ===================================================== */

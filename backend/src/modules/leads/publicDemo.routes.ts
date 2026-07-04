@@ -16,6 +16,7 @@ import { z } from "zod";
 import Lead from "./lead.model.js";
 import Pipeline from "../pipelines/pipeline.model.js";
 import { LeadSource } from "../../shared/enums/lead.enums.js";
+import { sendDemoRequestNotification } from "../../utils/mailer.js";
 
 const router = Router();
 
@@ -131,13 +132,27 @@ router.post(
       });
 
       console.log(
-        `New demo request: name=${name} email=${email} company=${company ?? "n/a"} leadId=${lead._id}`
-      );
+  `New demo request: name=${name} email=${email} company=${company ?? "n/a"} leadId=${lead._id}`
+);
 
-      res.status(201).json({
-        success: true,
-        message: "Thanks! We'll be in touch shortly to schedule your demo.",
-      });
+/* Fire the email notification — don't block or fail the response if
+   email sending has an issue, the lead is already saved either way. */
+const notificationPayload: {
+  name: string;
+  email: string;
+  company?: string;
+  message?: string;
+} = { name, email };
+
+if (company) notificationPayload.company = company;
+if (message) notificationPayload.message = message;
+
+void sendDemoRequestNotification(notificationPayload);
+
+res.status(201).json({
+  success: true,
+  message: "Thanks! We'll be in touch shortly to schedule your demo.",
+});
     } catch (err) {
       next(err);
     }
