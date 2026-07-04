@@ -90,6 +90,7 @@ const allowedOrigins = [
   "https://situs-dashboard-enctreo6m-situs-projects2.vercel.app",
   "https://app.situsrevenue.com",
   "https://situsrevenue.com",
+  "https://www.situsrevenue.com",
 ];
 
 app.use(
