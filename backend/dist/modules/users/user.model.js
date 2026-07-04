@@ -18,9 +18,21 @@ const userSchema = new Schema({
     },
     password: {
         type: String,
-        required: true,
+        required: false,
         minlength: 6,
         select: false,
+    },
+    authProvider: {
+        type: String,
+        enum: ["local", "google"],
+        default: "local",
+        index: true,
+    },
+    googleId: {
+        type: String,
+        default: null,
+        index: true,
+        sparse: true,
     },
     organizationId: {
         type: Schema.Types.ObjectId,
@@ -87,7 +99,8 @@ userSchema.pre("save", async function () {
     if (this.email) {
         this.email = this.email.trim().toLowerCase();
     }
-    if (this.isModified("password")) {
+    // Only hash if a password was actually set (skips Google-auth users)
+    if (this.password && this.isModified("password")) {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
     }
@@ -96,6 +109,9 @@ userSchema.pre("save", async function () {
    PASSWORD COMPARISON METHOD
 ===================================================== */
 userSchema.methods.comparePassword = async function (candidatePassword) {
+    // Google-auth users have no password — comparison always fails safely
+    if (!this.password)
+        return false;
     return bcrypt.compare(candidatePassword, this.password);
 };
 /* =====================================================

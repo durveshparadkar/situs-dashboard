@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, RequestHandler } from "express";
+import passport from "passport";
 
 import authController from "./auth.controller.js";
 
@@ -40,6 +41,36 @@ router.post(
 );
 
 /**
+ * GOOGLE OAUTH — START
+ * Redirects the browser to Google's consent screen.
+ * session: false because we issue our own JWT cookies afterward,
+ * same as normal email/password login — no server-side session needed.
+ */
+router.get(
+  "/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+  }) as RequestHandler
+);
+
+/**
+ * GOOGLE OAUTH — CALLBACK
+ * Google redirects here after the user approves access. Passport
+ * verifies the profile (see passport.ts), attaches it
+ * to req.user, then authController.googleCallback exchanges it for
+ * our own JWT cookies and redirects into the app.
+ */
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL || "https://app.situsrevenue.com"}/login?error=google_auth_failed`,
+  }) as RequestHandler,
+  authController.googleCallback as RequestHandler
+);
+
+/**
  * REFRESH TOKEN (🔥 IMPORTANT ADD)
  */
 router.post(
@@ -68,10 +99,14 @@ router.post(
  */
 const profileCache: RequestHandler = cache(
   (req: Request) => {
-    const user = req.user;
+    const user =
+      req.user as { id?: string; _id?: { toString(): string } | string } | undefined;
     const id =
-      (typeof user?.id === "string" && user.id) ||
-      (user?._id ? String(user._id) : "unknown");
+      typeof user?.id === "string"
+        ? user.id
+        : user?._id
+        ? String(user._id)
+        : "unknown";
     return "me:" + id;
   },
   { ttl: 30 }

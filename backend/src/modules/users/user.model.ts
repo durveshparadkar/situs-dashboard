@@ -13,7 +13,10 @@ import bcrypt from "bcryptjs";
 export interface IUser {
   email: string;
   fullName?: string;
-  password: string;
+  password?: string; // optional — Google-authenticated users have no password
+
+  authProvider: "local" | "google";
+  googleId?: string | null;
 
   organizationId: Types.ObjectId;
   roleId: Types.ObjectId;
@@ -60,9 +63,23 @@ const userSchema = new Schema<IUser>(
 
     password: {
       type: String,
-      required: true,
+      required: false,
       minlength: 6,
       select: false,
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+      index: true,
+    },
+
+    googleId: {
+      type: String,
+      default: null,
+      index: true,
+      sparse: true,
     },
 
     organizationId: {
@@ -150,7 +167,8 @@ userSchema.pre("save", async function () {
     this.email = this.email.trim().toLowerCase();
   }
 
-  if (this.isModified("password")) {
+  // Only hash if a password was actually set (skips Google-auth users)
+  if (this.password && this.isModified("password")) {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
   }
@@ -163,6 +181,8 @@ userSchema.pre("save", async function () {
 userSchema.methods.comparePassword = async function (
   candidatePassword: string
 ) {
+  // Google-auth users have no password — comparison always fails safely
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

@@ -22,6 +22,12 @@ interface LoginInput {
   password: string;
 }
 
+interface GoogleProfileInput {
+  googleId: string;
+  email: string;
+  fullName?: string;
+}
+
 /* ================= JWT ================= */
 
 const ACCESS_SECRET = process.env.JWT_SECRET!;
@@ -168,6 +174,7 @@ const [user] = await User.create(
       organizationId: org._id,
       roleId:         role._id,
       role:           "ORG_ADMIN",
+      authProvider:   "local",
     },
   ],
   { session }
@@ -325,6 +332,171 @@ if (!userAny.role || !userAny.roleId) {
     };
   }
 
+  /* ================= GOOGLE LOGIN / SIGNUP =================
+     Called from the Passport Google Strategy callback. If the
+     email already has an account, logs in (linking googleId if
+     it wasn't set yet). Otherwise creates a brand-new Organization
+     + default Role + default Pipeline, same as normal register(),
+     but with authProvider "google" and no password. */
+
+  async loginWithGoogle(profile: GoogleProfileInput) {
+    const email = profile.email.toLowerCase();
+
+    const existingUser = await User.findOne({ email }).select(
+      "+password email organizationId roleId role isActive authProvider googleId"
+    );
+
+    /* ============ EXISTING USER — LOGIN + LINK ============ */
+    if (existingUser) {
+      if (!existingUser.isActive) {
+        throw ApiError.forbidden("User is inactive");
+      }
+
+      const userAny = existingUser as any;
+
+      /* Link Google to a pre-existing local account on first
+         Google sign-in with a matching email. */
+      if (!userAny.googleId) {
+        userAny.googleId = profile.googleId;
+        userAny.authProvider = "google";
+        await existingUser.save();
+      }
+
+      /* Backfill role string, same recovery path as normal login */
+      if (!userAny.role || !userAny.roleId) {
+        const adminRole = await ensureOrgAdminRole();
+        userAny.role = "ORG_ADMIN";
+        userAny.roleId = adminRole._id;
+        await User.findByIdAndUpdate(existingUser._id, {
+          role: "ORG_ADMIN",
+          roleId: adminRole._id,
+        });
+      }
+
+      let org = await Organization.findById(existingUser.organizationId).select(
+        "_id name slug plan createdAt updatedAt"
+      );
+
+      if (!org) {
+        org = await Organization.create({
+          name: "Personal Workspace",
+          slug: `workspace-${existingUser._id.toString()}`,
+          plan: "PRO",
+        });
+
+        await User.findByIdAndUpdate(existingUser._id, {
+          organizationId: org._id,
+        });
+      }
+
+      const existingPipeline = await Pipeline.findOne({ organizationId: org._id });
+      if (!existingPipeline) {
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await createDefaultPipeline(org!._id, session);
+          });
+        } finally {
+          session.endSession();
+        }
+      }
+
+      const payload = {
+        id: existingUser._id.toString(),
+        organizationId: org._id.toString(),
+        roleId: String(userAny.roleId),
+      };
+
+      const accessToken = signAccessToken(payload);
+      const refreshToken = signRefreshToken(payload);
+
+      void User.findByIdAndUpdate(existingUser._id, {
+        lastLoginAt: new Date(),
+      }).catch(() => undefined);
+
+      return {
+        user: existingUser,
+        organization: org,
+        accessToken,
+        refreshToken,
+      };
+    }
+
+    /* ============ NEW USER — FULL SIGNUP ============ */
+    const session = await mongoose.startSession();
+
+    try {
+      let createdUser: any;
+      let createdOrg: any;
+
+      await session.withTransaction(async () => {
+        const orgName = profile.fullName
+          ? `${profile.fullName}'s Organization`
+          : "Default Organization";
+
+        const [org] = await Organization.create(
+          [
+            {
+              name: orgName,
+              slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
+              plan: "SMALL_BUSINESS",
+            },
+          ],
+          { session }
+        );
+
+        if (!org) {
+          throw ApiError.internal("Organization creation failed");
+        }
+
+        const role = await ensureOrgAdminRole(session);
+
+        const [user] = await User.create(
+          [
+            {
+              email,
+              fullName: profile.fullName?.trim() || "",
+              organizationId: org._id,
+              roleId: role._id,
+              role: "ORG_ADMIN",
+              authProvider: "google",
+              googleId: profile.googleId,
+              isEmailVerified: true, // Google already verified this email
+            },
+          ],
+          { session }
+        );
+
+        if (!user) {
+          throw ApiError.internal("User creation failed");
+        }
+
+        await createDefaultPipeline(org._id, session);
+
+        createdUser = user;
+        createdOrg = org;
+      });
+
+      const payload = {
+        id: createdUser._id.toString(),
+        organizationId: createdOrg._id.toString(),
+        roleId: createdUser.roleId.toString(),
+      };
+
+      const accessToken = signAccessToken(payload);
+      const refreshToken = signRefreshToken(payload);
+
+      return {
+        user: createdUser,
+        organization: createdOrg,
+        accessToken,
+        refreshToken,
+      };
+    } finally {
+      session.endSession();
+    }
+  }
+
   /* ================= PROFILE ================= */
 
   async getProfile(userId: string) {
@@ -419,6 +591,7 @@ const authService = new AuthService();
 export default authService;
 export const register = authService.register.bind(authService);
 export const login = authService.login.bind(authService);
+export const loginWithGoogle = authService.loginWithGoogle.bind(authService);
 export const getProfile = authService.getProfile.bind(authService);
 export const refresh = authService.refresh.bind(authService);
 

@@ -1,31 +1,45 @@
 // mailer.ts
 //
-// Sends transactional emails via Zoho Mail SMTP. Used for demo request
-// notifications for now — can be extended to password resets, etc. later.
-import nodemailer from "nodemailer";
-const ZOHO_SMTP_USER = process.env.ZOHO_SMTP_USER || ""; // durvesh@situsrevenue.com
-const ZOHO_SMTP_PASS = process.env.ZOHO_SMTP_PASS || ""; // app-specific password from Zoho
-const transporter = nodemailer.createTransport({
-    host: "smtp.zoho.in", // use smtp.zoho.com if your account is on the .com data center
-    port: 465,
-    secure: true, // true for port 465
-    auth: {
-        user: ZOHO_SMTP_USER,
-        pass: ZOHO_SMTP_PASS,
-    },
-});
+// Sends transactional emails via the Resend HTTP API (https://resend.com).
+// Switched from Zoho SMTP because Render's free tier blocks outbound SMTP
+// ports (465/587/25), causing ETIMEDOUT on every send. Resend sends over
+// HTTPS (port 443), which Render does not block.
+//
+// Requires RESEND_API_KEY env var (set on Render dashboard -> Environment).
+// The "from" address must be on a domain verified in the Resend dashboard
+// (Domains -> situsrevenue.com -> DNS records added -> Verified).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const RESEND_API_URL = "https://api.resend.com/emails";
+// This must be an address on your Resend-verified domain.
+// Using your existing Zoho address is fine as long as situsrevenue.com
+// shows "Verified" in the Resend dashboard.
+const FROM_ADDRESS = "Situs Revenue <durvesh@situsrevenue.com>";
+// Where founder notifications land — change if you want a different inbox.
+const NOTIFY_TO = process.env.ZOHO_SMTP_USER || "durvesh@situsrevenue.com";
 export async function sendEmail({ to, subject, html }) {
-    if (!ZOHO_SMTP_USER || !ZOHO_SMTP_PASS) {
-        console.error("Email not sent — ZOHO_SMTP_USER / ZOHO_SMTP_PASS env vars not set");
+    if (!RESEND_API_KEY) {
+        console.error("Email not sent — RESEND_API_KEY env var not set");
         return;
     }
     try {
-        await transporter.sendMail({
-            from: `"Situs Revenue" <${ZOHO_SMTP_USER}>`,
-            to,
-            subject,
-            html,
+        const response = await fetch(RESEND_API_URL, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${RESEND_API_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                from: FROM_ADDRESS,
+                to: [to],
+                subject,
+                html,
+            }),
         });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error(`Failed to send email: ${response.status} ${errorBody}`);
+            return;
+        }
         console.log(`Email sent: to=${to} subject="${subject}"`);
     }
     catch (err) {
@@ -39,7 +53,7 @@ export async function sendEmail({ to, subject, html }) {
 export async function sendDemoRequestNotification(opts) {
     const { name, email, company, message } = opts;
     await sendEmail({
-        to: ZOHO_SMTP_USER, // sends to yourself
+        to: NOTIFY_TO,
         subject: `New demo request: ${name}`,
         html: `
       <div style="font-family: -apple-system, sans-serif; max-width: 480px;">

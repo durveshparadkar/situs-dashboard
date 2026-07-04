@@ -5,6 +5,9 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import { v4 as uuid } from "uuid";
+/* 🔐 GOOGLE OAUTH (must be imported before routes so the strategy
+   is registered before /api/auth/google is hit) */
+import passport from "./modules/auth/passport.js";
 /* 🔥 REGISTER EVENT LISTENERS */
 import "./modules/leads/lead.listener.js";
 /* 🧠 REGISTER BRAIN WORKER */
@@ -81,6 +84,9 @@ app.use(cors({
 }));
 /* 🔥 MUST COME BEFORE ROUTES */
 app.use(cookieParser());
+/* 🔐 PASSPORT — session: false everywhere it's used, so we only
+   need initialize() here, not passport.session()/express-session. */
+app.use(passport.initialize());
 /* ===============================
    PERFORMANCE
 =============================== */

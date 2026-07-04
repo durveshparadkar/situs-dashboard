@@ -229,6 +229,8 @@ export interface ValidatedInput {
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
+    interface User extends AuthenticatedUser {}
+
     interface Request {
       /* ── Auth — populated by protect middleware ── */
       user?: AuthenticatedUser;

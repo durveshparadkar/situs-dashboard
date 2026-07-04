@@ -25,6 +25,8 @@ const AUTH_CONFIG = {
         maxNameLength: 200,
     },
 };
+/* Where to send the browser after Google OAuth completes */
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://app.situsrevenue.com";
 /* =====================================================
    COOKIE BUILDER
 ===================================================== */
@@ -218,6 +220,29 @@ class AuthController {
             ...stripTokens(result),
         });
     }, { name: "auth.login", alwaysLog: true });
+    /* =====================================================
+       GET /auth/google/callback
+       Passport has already verified the user with Google and
+       attached the profile to req.user (see passport.ts strategy).
+       We exchange that profile for our own org/user + JWTs via
+       authService.loginWithGoogle, set the same cookies normal
+       login uses, then redirect the browser back into the app.
+    ===================================================== */
+    googleCallback = asyncHandler(async (req, res, _next) => {
+        const googleProfile = req.user;
+        if (!googleProfile?.email || !googleProfile?.googleId) {
+            dbLogger.warn(`Google callback missing profile data ${safeReqDescriptor(req)}`);
+            return res.redirect(`${FRONTEND_URL}/login?error=google_auth_failed`);
+        }
+        const result = asResult(await authService.loginWithGoogle({
+            googleId: googleProfile.googleId,
+            email: googleProfile.email,
+            fullName: googleProfile.fullName ?? "",
+        }));
+        setAuthCookies(res, result);
+        dbLogger.info(`Google login: email=${googleProfile.email} ${safeReqDescriptor(req)}`);
+        res.redirect(`${FRONTEND_URL}/dashboard`);
+    }, { name: "auth.googleCallback", alwaysLog: true });
     /* =====================================================
        POST /auth/logout
     ===================================================== */
