@@ -73,9 +73,9 @@ export default function DemoRequestPage() {
 
         {/* LEFT — VALUE PROP (hidden on mobile, matches app's split-screen pattern) */}
         <div
-          className="hide-mobile"
-          style={{
-            width: "44%",
+  className="hide-mobile demo-left-panel"
+  style={{
+    width: "44%",
             background: "linear-gradient(160deg, #0A0A0A 0%, #1A1A1A 100%)",
             color: "#fff",
             padding: "56px 48px",
@@ -144,6 +144,7 @@ export default function DemoRequestPage() {
 
         {/* RIGHT — FORM */}
         <div
+          className="demo-right-panel"
           style={{
             flex: 1,
             display: "flex",
@@ -292,13 +293,15 @@ export default function DemoRequestPage() {
       </div>
 
       <style>{`
-        @media (max-width: 900px) {
-          .hide-desktop { display: inline-block !important; }
-        }
-        @media (min-width: 901px) {
-          .hide-desktop { display: none !important; }
-        }
-      `}</style>
+  @media (max-width: 900px) {
+    .hide-desktop { display: inline-block !important; }
+    .demo-left-panel { display: none !important; }
+    .demo-right-panel { padding: 32px 20px !important; }
+  }
+  @media (min-width: 901px) {
+    .hide-desktop { display: none !important; }
+  }
+`}</style>
     </>
   );
 }
