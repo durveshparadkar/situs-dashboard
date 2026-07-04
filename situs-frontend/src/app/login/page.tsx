@@ -99,8 +99,8 @@ useEffect(() => {
   };
 
   const handleGoogle = () => {
-    setError("Google auth not implemented yet");
-  };
+  window.location.href = "https://api.situsrevenue.com/api/auth/google";
+};
 
   return (
     <div className="min-h-screen flex">
