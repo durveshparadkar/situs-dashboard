@@ -108,7 +108,7 @@ router.post("/demo-request", demoRequestLimiter, async (req, res, next) => {
                 : "Demo requested via website — no additional message.",
         });
         console.log(`New demo request: name=${name} email=${email} company=${company ?? "n/a"} leadId=${lead._id}`);
-        /* Fire the email notification — don't block or fail the response if
+        /* Fire the email notification - don't block or fail the response if
            email sending has an issue, the lead is already saved either way. */
         const notificationPayload = { name, email };
         if (company)
