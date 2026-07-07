@@ -5,6 +5,7 @@ import { Building2, Mail, Calendar, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 import DrawerShell from "./shared/drawer-shell";
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
 
 import {
   createDeal,
@@ -29,9 +30,18 @@ interface Props {
   onUpdate: (deal: BackendDeal) => void;
 }
 
+const CURRENCY_SYMBOL_MAP: Record<OrgCurrency, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
 /* ================= COMPONENT ================= */
 
 export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
+  const currency = useOrgCurrency();
+  const currencySymbol = CURRENCY_SYMBOL_MAP[currency];
   const isEdit = Boolean(deal?._id);
 
   const [loading, setLoading] = useState(false);
@@ -238,11 +248,11 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
         {/* STATS */}
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Value" value={`₹${val.toLocaleString("en-IN")}`} />
+          <Stat label="Value" value={formatCurrency(val, currency)} />
           <Stat label="Win %" value={`${prob}%`} />
           <Stat
             label="Expected"
-            value={`₹${weighted.toLocaleString("en-IN")}`}
+            value={formatCurrency(weighted, currency)}
             highlight
           />
         </div>
@@ -275,7 +285,7 @@ export default function DealDrawer({ deal, onClose, onUpdate }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Value (₹)"
+              label={`Value (${currencySymbol})`}
               type="number"
               value={value}
               onChange={setValue}

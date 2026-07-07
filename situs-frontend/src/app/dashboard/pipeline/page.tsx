@@ -28,6 +28,7 @@ import MetricCard from "../../../components/dashboard/metric-card";
 import DealDrawer from "../../../components/drawers/deal-drawer";
 
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
 
 /* ================= GLOBAL UI ================= */
 
@@ -152,10 +153,12 @@ function DealCard({
   deal,
   onClick,
   dragOverlay = false,
+  currency,
 }: {
   deal: Deal;
   onClick?: () => void;
   dragOverlay?: boolean;
+  currency: ReturnType<typeof useOrgCurrency>;
 }) {
   const {
     attributes,
@@ -196,7 +199,7 @@ function DealCard({
       </p>
 
       <p className="text-xs text-slate-500 mt-1 tabular-nums">
-        ₹{Number(deal.value ?? 0).toLocaleString()}
+        {formatCurrency(Number(deal.value ?? 0), currency)}
       </p>
 
       <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -215,10 +218,12 @@ function Column({
   stage,
   deals,
   onSelect,
+  currency,
 }: {
   stage: Stage;
   deals: Deal[];
   onSelect: (d: Deal) => void;
+  currency: ReturnType<typeof useOrgCurrency>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
 
@@ -254,6 +259,7 @@ function Column({
                   key={d._id}
                   deal={d}
                   onClick={() => onSelect(d)}
+                  currency={currency}
                 />
               ))
             )}
@@ -268,6 +274,7 @@ function Column({
 
 export default function PipelinePage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
 
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -487,7 +494,7 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <Card><MetricCard title="Deals" value={deals.length.toString()} /></Card>
-            <Card><MetricCard title="Pipeline Value" value={`₹${pipelineValue.toLocaleString()}`} /></Card>
+            <Card><MetricCard title="Pipeline Value" value={formatCurrency(pipelineValue, currency)} /></Card>
             <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
           </div>
 
@@ -498,6 +505,7 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
                 stage={s}
                 deals={grouped[s]}
                 onSelect={setSelectedDeal}
+                currency={currency}
               />
             ))}
           </div>
@@ -505,7 +513,7 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
         </PageContainer>
 
         <DragOverlay>
-          {activeDeal && <DealCard deal={activeDeal} dragOverlay />}
+          {activeDeal && <DealCard deal={activeDeal} dragOverlay currency={currency} />}
         </DragOverlay>
       </DndContext>
 

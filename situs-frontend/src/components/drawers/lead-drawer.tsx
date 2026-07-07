@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 
 import DrawerShell from "./shared/drawer-shell";
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
 
 interface Lead {
   _id?: string;
@@ -43,11 +44,16 @@ const SOURCE_OPTIONS = [
   "OTHER",
 ];
 
-function money(value: number) {
-  return `₹${value.toLocaleString("en-IN")}`;
-}
+const CURRENCY_SYMBOL_MAP: Record<OrgCurrency, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
 
 export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
+  const currency = useOrgCurrency();
+  const currencySymbol = CURRENCY_SYMBOL_MAP[currency];
   const isEdit = Boolean(lead?._id && lead._id.trim().length > 0);
 
   const [loading, setLoading] = useState(false);
@@ -194,9 +200,9 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
 
         {/* STATS */}
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Budget" value={money(numericBudget)} />
+          <Stat label="Budget" value={formatCurrency(numericBudget, currency)} />
           <Stat label="Win %" value={`${probability}%`} />
-          <Stat label="Expected" value={money(weighted)} highlight />
+          <Stat label="Expected" value={formatCurrency(weighted, currency)} highlight />
         </div>
 
         {/* FORM */}
@@ -212,7 +218,7 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
             onChange={setLocation}
           />
           <Input
-            label="Budget (₹)"
+            label={`Budget (${currencySymbol})`}
             value={budget}
             onChange={setBudget}
             type="number"

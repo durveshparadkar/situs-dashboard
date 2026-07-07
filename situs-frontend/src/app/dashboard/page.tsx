@@ -19,8 +19,13 @@ import {
   refreshIntelligence,
   type IntelligenceSummary,
 } from "../../lib/intelligence/intelligence.api";
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
 
-/* ================= GLOBAL UI ================= */
+/* ================= GLOBAL UI =================
+   Spacing follows an 8pt grid throughout this page: the outer
+   container uses py-8/px-6 (32px/24px) and every section gap below
+   is gap-6 / space-y-6 (24px) so vertical and horizontal rhythm
+   match consistently — no mismatched gap-5/gap-6 sizes. */
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
@@ -142,18 +147,6 @@ function isAccessDeniedMessage(message: string): boolean {
   );
 }
 
-/* ================= INR FORMATTER ================= */
-
-function formatINR(rupees: number): string {
-  if (rupees >= 10_000_000) {
-    return "₹" + (rupees / 10_000_000).toFixed(1) + "Cr";
-  }
-  if (rupees >= 100_000) {
-    return "₹" + (rupees / 100_000).toFixed(1) + "L";
-  }
-  return "₹" + rupees.toLocaleString("en-IN");
-}
-
 /* ================= SIGNAL MAPPERS ================= */
 
 function mapBackendPriorityToSignal(
@@ -237,7 +230,10 @@ function mapToUIDeals(intel: IntelligenceSummary): UIDeal[] {
 
 /* ================= METRIC AGGREGATORS ================= */
 
-function getMetrics(intel: IntelligenceSummary): {
+function getMetrics(
+  intel: IntelligenceSummary,
+  currency: ReturnType<typeof useOrgCurrency>
+): {
   pipeline:     string;
   revenue:      string;
   atRisk:       string;
@@ -249,9 +245,9 @@ function getMetrics(intel: IntelligenceSummary): {
   const escalations = intel.actions.byType.critical ?? 0;
 
   return {
-    pipeline:    formatINR(pipeline),
-    revenue:     formatINR(weighted),
-    atRisk:      formatINR(atRisk),
+    pipeline:    formatCurrency(pipeline, currency),
+    revenue:     formatCurrency(weighted, currency),
+    atRisk:      formatCurrency(atRisk, currency),
     escalations: String(escalations),
   };
 }
@@ -259,6 +255,7 @@ function getMetrics(intel: IntelligenceSummary): {
 /* ================= PAGE ================= */
 
 export default function DashboardPage() {
+  const currency = useOrgCurrency();
   const [now, setNow] = useState(() => Date.now());
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -322,9 +319,14 @@ export default function DashboardPage() {
   const metrics = useMemo(
     () =>
       intel
-        ? getMetrics(intel)
-        : { pipeline: "₹0", revenue: "₹0", atRisk: "₹0", escalations: "0" },
-    [intel]
+        ? getMetrics(intel, currency)
+        : {
+            pipeline: formatCurrency(0, currency),
+            revenue: formatCurrency(0, currency),
+            atRisk: formatCurrency(0, currency),
+            escalations: "0",
+          },
+    [intel, currency]
   );
 
   const getSignalAge = (t: number) => {
@@ -359,7 +361,7 @@ export default function DashboardPage() {
           <div className="h-4 w-72 bg-slate-100 rounded-md" />
         </div>
         <div className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
@@ -409,7 +411,7 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="text-xs font-mono text-slate-500 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+          <div className="text-xs font-mono tabular-nums text-slate-500 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
             {mounted ? new Date(now).toLocaleTimeString() : "--:--"}
           </div>
         </div>
@@ -419,8 +421,9 @@ export default function DashboardPage() {
           <RevenuePulse status={pulseStatus} message={pulseMessage} />
         </Card>
 
-        {/* METRICS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* METRICS — tabular-nums keeps digit widths stable as values
+            refresh, avoiding layout jitter on a numbers-heavy grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 tabular-nums">
           <Card><MetricCard title="Pipeline" value={metrics.pipeline} /></Card>
           <Card><MetricCard title="Revenue" value={metrics.revenue} /></Card>
           <Card><MetricCard title="At Risk" value={metrics.atRisk} /></Card>
@@ -434,7 +437,7 @@ export default function DashboardPage() {
 
         {/* SIGNALS */}
         {signals.length > 0 && (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
             {signals.slice(0, 6).map((s) => (
               <AISignalCard
                 key={s.id}
@@ -446,7 +449,7 @@ export default function DashboardPage() {
         )}
 
         {/* CHART + FORECAST */}
-        <div className="grid lg:grid-cols-2 gap-5">
+        <div className="grid lg:grid-cols-2 gap-6">
           <Card><PipelineHealthChart /></Card>
           <Card>
             <RevenueForecast
@@ -503,3 +506,4 @@ export default function DashboardPage() {
     </>
   );
 }
+

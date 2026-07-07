@@ -8,6 +8,7 @@ import MetricCard from "../../../components/dashboard/metric-card";
 import toast from "react-hot-toast";
 
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
 
 /* ================= TYPES ================= */
 
@@ -91,15 +92,6 @@ function mapBackendAlert(a: BackendAlert): RevenueAlert {
 
 /* ================= HELPERS ================= */
 
-/* Indian currency formatter — Cr / L / plain rupees.
-   Matches the dashboard so the whole app reads consistently. */
-function formatINR(rupees: number): string {
-  const v = rupees || 0;
-  if (v >= 10_000_000) return "₹" + (v / 10_000_000).toFixed(1) + "Cr";
-  if (v >= 100_000) return "₹" + (v / 100_000).toFixed(1) + "L";
-  return "₹" + v.toLocaleString("en-IN");
-}
-
 function getSeverityStyle(severity: AlertSeverity) {
   switch (severity) {
     case "critical":
@@ -144,6 +136,7 @@ const Card = ({
 
 export default function AlertsPage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
 
   const [alerts, setAlerts] = useState<RevenueAlert[]>([]);
   const [notifications] = useState<Notification[]>([]);
@@ -255,7 +248,7 @@ export default function AlertsPage() {
           <div className="h-4 w-16 bg-slate-200 rounded-md" />
           <div className="h-8 w-56 bg-slate-200 rounded-md" />
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(3)].map((_, i) => (
             <div
               key={i}
@@ -347,7 +340,7 @@ export default function AlertsPage() {
       </div>
 
       {/* METRICS */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card>
           <MetricCard
             title="Critical"
@@ -367,8 +360,9 @@ export default function AlertsPage() {
         <Card>
           <MetricCard
             title="Revenue Risk"
-            value={formatINR(
-              visibleAlerts.reduce((s, a) => s + a.impact, 0)
+            value={formatCurrency(
+              visibleAlerts.reduce((s, a) => s + a.impact, 0),
+              currency
             )}
           />
         </Card>
@@ -427,7 +421,7 @@ export default function AlertsPage() {
 
                 <div className="flex flex-col items-end gap-3 shrink-0">
                   <p className="font-medium text-slate-900 tabular-nums">
-                    {formatINR(alert.impact)}
+                    {formatCurrency(alert.impact, currency)}
                   </p>
 
                   <div className="flex gap-2 text-xs">

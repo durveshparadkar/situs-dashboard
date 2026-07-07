@@ -20,6 +20,7 @@ import MetricCard from "../../../components/dashboard/metric-card";
 import DealDrawer from "../../../components/drawers/deal-drawer";
 
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
 
 import {
   listDeals,
@@ -58,6 +59,15 @@ const Card = ({
     {children}
   </m.div>
 );
+
+/* ================= CURRENCY SYMBOL HELPER (for short UI labels) ================= */
+
+const CURRENCY_SYMBOL_MAP: Record<OrgCurrency, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
 
 /* ================= TYPES ================= */
 
@@ -158,6 +168,8 @@ function mapBackendDealToRanked(
 
 export default function DealsPage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
+  const currencySymbol = CURRENCY_SYMBOL_MAP[currency];
 
   const [deals, setDeals] = useState<BackendDeal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -437,8 +449,8 @@ export default function DealsPage() {
 
         {/* HERO */}
         <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
-          <h2 className="text-3xl font-bold tracking-tight">
-            ₹{pipelineValue.toLocaleString()}
+          <h2 className="text-3xl font-bold tracking-tight tabular-nums">
+            {formatCurrency(pipelineValue, currency)}
           </h2>
           <p className="text-white/70 mt-2 text-sm">
             Pipeline Value • {deals.length} deal{deals.length === 1 ? "" : "s"}
@@ -448,7 +460,7 @@ export default function DealsPage() {
         {/* METRICS */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <Card><MetricCard title="Total Deals" value={deals.length.toString()} /></Card>
-          <Card><MetricCard title="Pipeline Value" value={`₹${pipelineValue.toLocaleString()}`} /></Card>
+          <Card><MetricCard title="Pipeline Value" value={formatCurrency(pipelineValue, currency)} /></Card>
           <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
         </div>
 
@@ -465,7 +477,7 @@ export default function DealsPage() {
               onClick={() => setSortHigh((s) => !s)}
               className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
             >
-              {sortHigh ? "₹ High → Low" : "₹ Low → High"}
+              {sortHigh ? `${currencySymbol} High → Low` : `${currencySymbol} Low → High`}
             </button>
           </div>
         </Card>
@@ -527,7 +539,7 @@ export default function DealsPage() {
 
                         {/* Value */}
                         <td className="py-3.5 px-4 tabular-nums text-slate-700">
-                          ₹{deal.value.toLocaleString()}
+                          {formatCurrency(deal.value, currency)}
                         </td>
 
                         {/* Probability */}

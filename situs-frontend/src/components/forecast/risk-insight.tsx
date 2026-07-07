@@ -1,11 +1,15 @@
 "use client";
 
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
+
 type Deal = {
   risk: "Low" | "Medium" | "High";
   value: number;
 };
 
 export default function RiskInsight({ deals }: { deals: Deal[] }) {
+  const currency = useOrgCurrency();
+
   /* ================= GROUPING ================= */
 
   const groups = {
@@ -69,8 +73,8 @@ export default function RiskInsight({ deals }: { deals: Deal[] }) {
             </div>
 
             {/* VALUE */}
-            <p className="mt-3 text-xl font-semibold text-slate-900">
-              ₹{total.toLocaleString()}
+            <p className="mt-3 text-xl font-semibold text-slate-900 tabular-nums">
+              {formatCurrency(total, currency)}
             </p>
 
             {/* META */}

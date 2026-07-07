@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
@@ -65,8 +66,6 @@ type AnalyticsData = {
   topActions: Prediction[];
 };
 
-const formatMoney = (v?: number) => `₹${(v ?? 0).toLocaleString()}`;
-
 const EMPTY_SUMMARY: Summary = {
   totalRevenue: 0,
   revenueAtRisk: 0,
@@ -76,6 +75,7 @@ const EMPTY_SUMMARY: Summary = {
 
 export default function AnalyticsPage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
 
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,7 +202,7 @@ export default function AnalyticsPage() {
 
       <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
         <h2 className="text-4xl font-bold tracking-tight">
-          {formatMoney(data.summary.totalRevenue)}
+          {formatCurrency(data.summary.totalRevenue, currency)}
         </h2>
 
         <p className="text-white/70 mt-2 text-sm">
@@ -215,8 +215,8 @@ export default function AnalyticsPage() {
       </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-        <Card><MetricCard title="Revenue" value={formatMoney(data.summary.totalRevenue)} /></Card>
-        <Card><MetricCard title="At Risk" value={formatMoney(data.summary.revenueAtRisk)} /></Card>
+        <Card><MetricCard title="Revenue" value={formatCurrency(data.summary.totalRevenue, currency)} /></Card>
+        <Card><MetricCard title="At Risk" value={formatCurrency(data.summary.revenueAtRisk, currency)} /></Card>
         <Card><MetricCard title="Conversion" value={`${data.summary.avgConversion}%`} /></Card>
         <Card><MetricCard title="Deals" value={`${data.summary.totalDeals}`} /></Card>
       </div>
@@ -308,7 +308,7 @@ export default function AnalyticsPage() {
               </div>
 
               <p className="text-xs text-slate-500 mt-1.5">
-                {formatMoney(stage.totalValue)} • {stage.avgDays} days
+                {formatCurrency(stage.totalValue, currency)} • {stage.avgDays} days
               </p>
             </div>
           ))

@@ -8,6 +8,7 @@ import RiskInsight from "../../../components/forecast/risk-insight";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
+import { formatCurrency, useOrgCurrency } from "@/lib/currency";
 
 /* ================= TYPES (match backend forecast.service.ts) ================= */
 
@@ -75,8 +76,6 @@ const mapRisk = (level: DealLite["riskLevel"]): "Low" | "Medium" | "High" => {
 
 /* ================= HELPERS ================= */
 
-const formatMoney = (v: number) => `₹${(v ?? 0).toLocaleString("en-IN")}`;
-
 const insightColor = (level: ForecastInsight["level"]) => {
   if (level === "critical") return "text-red-600";
   if (level === "warning") return "text-amber-600";
@@ -124,6 +123,7 @@ const Card = ({
 
 export default function ForecastPage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
 
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownItem[]>([]);
@@ -243,8 +243,8 @@ export default function ForecastPage() {
 
       {/* HERO — real weighted forecast */}
       <Card className="bg-gradient-to-br from-slate-950 to-slate-800 text-white border-none">
-        <h1 className="text-4xl font-bold tracking-tight">
-          {formatMoney(summary.weightedForecast)}
+        <h1 className="text-4xl font-bold tracking-tight tabular-nums">
+          {formatCurrency(summary.weightedForecast, currency)}
         </h1>
 
         <p className="text-white/70 mt-2 text-sm">
@@ -254,15 +254,15 @@ export default function ForecastPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
           <div>
             <p className="text-white/60">Pipeline</p>
-            <p className="tabular-nums">{formatMoney(summary.totalPipelineValue)}</p>
+            <p className="tabular-nums">{formatCurrency(summary.totalPipelineValue, currency)}</p>
           </div>
           <div>
             <p className="text-white/60">Commit</p>
-            <p className="tabular-nums">{formatMoney(summary.commitForecast)}</p>
+            <p className="tabular-nums">{formatCurrency(summary.commitForecast, currency)}</p>
           </div>
           <div>
             <p className="text-white/60">Best Case</p>
-            <p className="tabular-nums">{formatMoney(summary.bestCaseForecast)}</p>
+            <p className="tabular-nums">{formatCurrency(summary.bestCaseForecast, currency)}</p>
           </div>
           <div>
             <p className="text-white/60">Open Deals</p>

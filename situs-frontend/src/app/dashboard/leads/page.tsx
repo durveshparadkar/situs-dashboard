@@ -15,6 +15,7 @@ import {
   parseLeadsFile,
   bulkCreateLeads,
 } from "../../../lib/intelligence/leads.api";
+import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="min-h-screen bg-slate-50">
@@ -40,6 +41,13 @@ const Card = ({
   </motion.div>
 );
 
+const CURRENCY_SYMBOL_MAP: Record<OrgCurrency, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
 export type Lead = {
   _id: string;
   name: string;
@@ -59,10 +67,6 @@ type LeadsResponse = {
   data: Lead[];
   total?: number;
 };
-
-function money(value: number) {
-  return `₹${value.toLocaleString("en-IN")}`;
-}
 
 function normalizeLead(input: Partial<Lead>): Lead {
   return {
@@ -190,6 +194,8 @@ type ConvertTarget = {
 
 export default function LeadsPage() {
   const router = useRouter();
+  const currency = useOrgCurrency();
+  const currencySymbol = CURRENCY_SYMBOL_MAP[currency];
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -462,7 +468,9 @@ export default function LeadsPage() {
 
         {/* HERO */}
         <Card className="bg-slate-950 text-white border-none">
-          <h2 className="text-3xl font-bold tracking-tight">{money(metrics.pipeline)}</h2>
+          <h2 className="text-3xl font-bold tracking-tight tabular-nums">
+            {formatCurrency(metrics.pipeline, currency)}
+          </h2>
           <p className="text-white/70 mt-2 text-sm">
             Pipeline value • {metrics.total} lead{metrics.total === 1 ? "" : "s"}
           </p>
@@ -477,7 +485,7 @@ export default function LeadsPage() {
             <MetricCard title="Qualified" value={metrics.qualified.toString()} />
           </Card>
           <Card className="bg-white">
-            <MetricCard title="Pipeline Value" value={money(metrics.pipeline)} />
+            <MetricCard title="Pipeline Value" value={formatCurrency(metrics.pipeline, currency)} />
           </Card>
         </div>
 
@@ -541,7 +549,7 @@ export default function LeadsPage() {
                         ))}
                       </div>
                       <p className="text-[12px] text-slate-400 mt-0.5">
-                        {money(lead.budget)} · {lead.interestedLocation || "—"}
+                        {formatCurrency(lead.budget, currency)} · {lead.interestedLocation || "—"}
                       </p>
                     </div>
 
@@ -631,7 +639,7 @@ export default function LeadsPage() {
                       </td>
                       <td className="py-3.5 px-4 text-slate-700">{lead.phone || "-"}</td>
                       <td className="py-3.5 px-4 text-slate-700">{lead.interestedLocation || "-"}</td>
-                      <td className="py-3.5 px-4 tabular-nums text-slate-700">{money(lead.budget)}</td>
+                      <td className="py-3.5 px-4 tabular-nums text-slate-700">{formatCurrency(lead.budget, currency)}</td>
                       <td className="py-3.5 px-4">
                         <span
                           className={`px-2 py-1 text-xs rounded-full border ${getPriorityBadge(
@@ -708,7 +716,7 @@ export default function LeadsPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-500 mb-1.5">Value (₹)</label>
+                <label className="block text-xs text-slate-500 mb-1.5">Value ({currencySymbol})</label>
                 <input
                   type="number"
                   value={convertTarget.value}

@@ -2,23 +2,18 @@
 
 import { motion as m } from "framer-motion";
 import { TrendingUp } from "lucide-react";
+import { formatCurrency, OrgCurrency } from "@/lib/currency";
 
 type Props = {
   expectedRevenue: number;
   confidence: number;
   dealsLikely: number;
   prevActual?: number;
-  currencySymbol?: string;
+  /** Org's currency. Defaults to INR (matches this component's original behavior). */
+  currency?: OrgCurrency;
 };
 
 const EASE = [0.16, 1, 0.3, 1] as const;
-
-function formatMoney(v: number, symbol: string) {
-  if (v >= 10_000_000) return symbol + (v / 10_000_000).toFixed(1) + "Cr";
-  if (v >= 100_000) return symbol + (v / 100_000).toFixed(1) + "L";
-  if (v >= 1_000) return symbol + Math.round(v / 1_000) + "K";
-  return symbol + v;
-}
 
 /* ================= GAUGE ================= */
 
@@ -80,7 +75,7 @@ export default function RevenueForecast({
   confidence,
   dealsLikely,
   prevActual,
-  currencySymbol = "₹",
+  currency = "INR",
 }: Props) {
   const delta =
     prevActual !== undefined && prevActual > 0
@@ -137,7 +132,7 @@ export default function RevenueForecast({
               </p>
 
               <div className="text-[28px] font-bold text-slate-900 tracking-tight tabular-nums leading-none">
-                {formatMoney(expectedRevenue, currencySymbol)}
+                {formatCurrency(expectedRevenue, currency)}
               </div>
 
               {delta !== null && (

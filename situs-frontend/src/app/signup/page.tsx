@@ -24,6 +24,13 @@ const QUOTES = [
   },
 ];
 
+const CURRENCIES = [
+  { code: "INR", label: "₹ INR — Indian Rupee" },
+  { code: "USD", label: "$ USD — US Dollar" },
+  { code: "EUR", label: "€ EUR — Euro" },
+  { code: "GBP", label: "£ GBP — British Pound" },
+] as const;
+
 const fadeUp = {
   hidden: { opacity: 0, y: 10 },
   visible: (i: number) => ({
@@ -40,6 +47,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [organizationName, setOrganizationName] = useState("");
+  const [currency, setCurrency] = useState<"INR" | "USD" | "EUR" | "GBP">("INR");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -106,10 +114,12 @@ export default function SignupPage() {
         password:          string;
         fullName:          string;
         organizationName?: string;
+        currency:          "INR" | "USD" | "EUR" | "GBP";
       } = {
         email:    email.trim().toLowerCase(),
         password: password,
         fullName: fullName.trim(),
+        currency: currency,
       };
 
       const trimmedOrg = organizationName.trim();
@@ -144,7 +154,7 @@ export default function SignupPage() {
   };
 
   const handleGoogle = () => {
-    setError("Google auth not implemented yet");
+    window.location.href = "https://api.situsrevenue.com/api/auth/google";
   };
 
   /* ================= UI ================= */
@@ -386,6 +396,28 @@ export default function SignupPage() {
                 onKeyDown={(e) => e.key === "Enter" && handleSignup()}
                 autoComplete="organization"
               />
+            </div>
+
+            <div>
+              <p className="text-xs text-slate-500 mb-1">
+                Currency
+              </p>
+              <select
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 bg-white"
+                value={currency}
+                onChange={(e) =>
+                  setCurrency(e.target.value as "INR" | "USD" | "EUR" | "GBP")
+                }
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                All deals and reports in your workspace will use this currency
+              </p>
             </div>
 
           </motion.div>

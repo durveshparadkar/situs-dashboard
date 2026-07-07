@@ -1,3 +1,5 @@
+import { formatCurrency as formatCurrencyShared, OrgCurrency } from "@/lib/currency";
+
 /* ================= TYPES ================= */
 
 export type AlertSeverity = "critical" | "watch" | "opportunity";
@@ -48,8 +50,11 @@ function hoursAgo(date: string) {
   return (Date.now() - new Date(date).getTime()) / (1000 * 60 * 60);
 }
 
-function formatCurrency(value: number) {
-  return `₹${(value / 1000).toFixed(0)}K`;
+/* Uses the shared app-wide formatter (Lakh/Crore for INR, K/M for
+   others) instead of a local always-"K" formatter, so alert messages
+   read consistently with every other money value in the app. */
+function formatCurrency(value: number, currency: OrgCurrency): string {
+  return formatCurrencyShared(value, currency);
 }
 
 function formatTime(hours: number) {
@@ -97,7 +102,8 @@ function computeRiskScore({
 
 export function generateAlerts(
   leads: Lead[],
-  deals: Deal[]
+  deals: Deal[],
+  currency: OrgCurrency = "INR"
 ): RevenueAlert[] {
   const alerts: RevenueAlert[] = [];
   const seen = new Set<string>();
@@ -167,7 +173,7 @@ export function generateAlerts(
       push({
         id: `lead-${lead._id}-high`,
         title: "High Value Lead",
-        message: `${lead.name} worth ${formatCurrency(value)}`,
+        message: `${lead.name} worth ${formatCurrency(value, currency)}`,
         company: lead.company,
         severity: "opportunity",
         status: "new",
@@ -204,7 +210,7 @@ export function generateAlerts(
         severity,
         status: "new",
         impact: deal.value,
-        impactLabel: `${formatCurrency(deal.value)} at risk`,
+        impactLabel: `${formatCurrency(deal.value, currency)} at risk`,
         owner: "Sales",
         detectedAt: formatTime(inactive),
         action: "Re-engage",
@@ -279,7 +285,7 @@ export function generateAlerts(
         severity: "opportunity",
         status: "new",
         impact: deal.value,
-        impactLabel: `${formatCurrency(deal.value)} expected`,
+        impactLabel: `${formatCurrency(deal.value, currency)} expected`,
         owner: "Sales",
         detectedAt: "now",
         action: "Close deal",
@@ -308,7 +314,7 @@ export function generateAlerts(
       severity: "watch",
       status: "new",
       impact: pipeline,
-      impactLabel: `${formatCurrency(pipeline)} total`,
+      impactLabel: `${formatCurrency(pipeline, currency)} total`,
       owner: "Revenue Ops",
       detectedAt: "now",
       action: "Generate pipeline",

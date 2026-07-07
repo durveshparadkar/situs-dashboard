@@ -341,7 +341,9 @@ function rowToLead(
     skipped.push({ row: rowNum, reason: "Missing location" });
     return;
   }
-  const budget = Number(budgetRaw.replace(/[,\s₹]/g, "").replace(/rs\.?/gi, ""));
+  /* Strip any currency symbol before parsing — org could be in INR,
+     USD, EUR, or GBP, so we accept all four rather than just ₹. */
+  const budget = Number(budgetRaw.replace(/[₹$€£,\s]/g, "").replace(/rs\.?/gi, ""));
   if (!Number.isFinite(budget) || budget < 0) {
     skipped.push({ row: rowNum, reason: "Invalid budget" });
     return;

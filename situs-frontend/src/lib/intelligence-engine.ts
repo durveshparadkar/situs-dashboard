@@ -1,3 +1,5 @@
+import { formatCurrency, OrgCurrency } from "@/lib/currency";
+
 /* ================= TYPES ================= */
 
 export type Deal = {
@@ -35,7 +37,8 @@ function safeString(v: unknown, fallback = ""): string {
 /* ================= CORE ENGINE ================= */
 
 export function generateDealIntelligence(
-  deals: unknown
+  deals: unknown,
+  currency: OrgCurrency = "INR"
 ): DealIntelligence[] {
   // ✅ HARD GUARD (fixes your crash class of bugs)
   if (!Array.isArray(deals)) return [];
@@ -111,7 +114,7 @@ export function generateDealIntelligence(
 
     const impact =
       deal.value > 0
-        ? `₹${deal.value.toLocaleString()} potential`
+        ? `${formatCurrency(deal.value, currency)} potential`
         : "No value data";
 
     return {

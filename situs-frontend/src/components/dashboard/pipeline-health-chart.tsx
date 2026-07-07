@@ -14,6 +14,8 @@ import {
   Cell,
 } from "recharts";
 
+import { formatCurrency, OrgCurrency } from "@/lib/currency";
+
 /* ================= TYPES ================= */
 
 type PipelineStage = {
@@ -23,7 +25,8 @@ type PipelineStage = {
 
 interface PipelineHealthChartProps {
   data?: PipelineStage[];
-  currencySymbol?: string;
+  /** Org's currency. Defaults to INR (matches this component's original behavior). */
+  currency?: OrgCurrency;
 }
 
 /* ================= DATA ================= */
@@ -44,23 +47,34 @@ const BAR_COLORS = [
   "#34D399",
 ];
 
+const CURRENCY_SYMBOLS: Record<OrgCurrency, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
 /* ================= HELPERS ================= */
 
-function formatShortMoney(value: number, symbol: string) {
-  if (value >= 1_000_000) return symbol + (value / 1_000_000).toFixed(1) + "M";
-  if (value >= 1_000) return symbol + Math.round(value / 1_000) + "K";
-  return symbol + value;
+/* Abbreviated for axis ticks + bar labels + header total — reuses the
+   shared app-wide formatter so INR shows Lakh/Crore consistently with
+   every other chart/table in the app, not a generic K/M suffix. */
+function formatShortMoney(value: number, currency: OrgCurrency): string {
+  return formatCurrency(value, currency);
 }
 
-function formatFullMoney(value: number, symbol: string) {
-  return symbol + value.toLocaleString();
+/* Full precision for the tooltip — exact figure, not abbreviated. */
+function formatFullMoney(value: number, currency: OrgCurrency): string {
+  const symbol = CURRENCY_SYMBOLS[currency];
+  const locale = currency === "INR" ? "en-IN" : "en-US";
+  return symbol + value.toLocaleString(locale);
 }
 
 /* ================= COMPONENT ================= */
 
 export default function PipelineHealthChart({
   data = DEFAULT_DATA,
-  currencySymbol = "₹",
+  currency = "INR",
 }: PipelineHealthChartProps) {
   const totalPipeline = data.reduce((sum, s) => sum + s.value, 0);
 
@@ -83,7 +97,7 @@ export default function PipelineHealthChart({
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
       <div className="text-xs text-slate-500">{label}</div>
       <div className="text-sm font-semibold text-slate-900">
-        {formatFullMoney(value, currencySymbol)}
+        {formatFullMoney(value, currency)}
       </div>
     </div>
   );
@@ -115,7 +129,7 @@ export default function PipelineHealthChart({
         <div className="text-right">
           <p className="text-[10px] text-slate-400 uppercase">Total</p>
           <p className="text-sm font-semibold text-slate-900">
-            {formatShortMoney(totalPipeline, currencySymbol)}
+            {formatShortMoney(totalPipeline, currency)}
           </p>
         </div>
       </div>
@@ -144,7 +158,7 @@ export default function PipelineHealthChart({
                 width={45}
                 tick={{ fontSize: 11, fill: "#94a3b8" }}
                 tickFormatter={(v: number) =>
-                  formatShortMoney(v, currencySymbol)
+                  formatShortMoney(v, currency)
                 }
                   domain={[0, (max: number) => max * 1.4]} // prevents label cut
               />
@@ -161,7 +175,7 @@ export default function PipelineHealthChart({
                   position="top"
                   offset={16}
                   formatter={(value: unknown) =>
-                    formatShortMoney(Number(value), currencySymbol)
+                    formatShortMoney(Number(value), currency)
                   }
                   style={{
                     fontSize: 11,
