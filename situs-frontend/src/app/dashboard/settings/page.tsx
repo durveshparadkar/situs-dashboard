@@ -16,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api";
+import { OrgCurrency, invalidateOrgCurrencyCache } from "@/lib/currency";
 
 /* ================= TYPES ================= */
 
@@ -37,6 +38,7 @@ type SavableSnapshot = {
   company: string;
   sensitivity: Sensitivity;
   alerts: AlertSettings;
+  currency: OrgCurrency;
 };
 
 /* Accept _id OR id — backend responses aren't always consistent about which
@@ -57,7 +59,11 @@ type OrgSettingsResponse = {
   data?: {
     name?: string;
     plan?: string;
-    settings?: { aiSensitivity?: Sensitivity; alerts?: Partial<AlertSettings> };
+    settings?: {
+      aiSensitivity?: Sensitivity;
+      alerts?: Partial<AlertSettings>;
+      currency?: string;
+    };
   };
 };
 
@@ -66,6 +72,19 @@ const ALERT_LABELS: Record<keyof AlertSettings, { label: string; hint: string }>
   pipeline: { label: "Pipeline", hint: "Alert on stage stagnation and leaks" },
   forecast: { label: "Forecast", hint: "Alert when forecast confidence drops" },
 };
+
+const CURRENCY_OPTIONS: Array<{ code: OrgCurrency; label: string }> = [
+  { code: "INR", label: "₹ INR — Indian Rupee" },
+  { code: "USD", label: "$ USD — US Dollar" },
+  { code: "EUR", label: "€ EUR — Euro" },
+  { code: "GBP", label: "£ GBP — British Pound" },
+];
+
+const VALID_CURRENCIES: readonly OrgCurrency[] = ["INR", "USD", "EUR", "GBP"];
+
+function isOrgCurrency(value: unknown): value is OrgCurrency {
+  return typeof value === "string" && (VALID_CURRENCIES as readonly string[]).includes(value);
+}
 
 const TABS = [
   { id: "profile", label: "Profile", icon: User },
@@ -100,7 +119,7 @@ function FieldRow({
   label, hint, children, last = false,
 }: { label: string; hint?: string; children: ReactNode; last?: boolean }) {
   return (
-    <div className={`grid sm:grid-cols-[200px_1fr] gap-2 sm:gap-8 py-5 ${last ? "" : "border-b border-zinc-100"}`}>
+    <div className={"grid sm:grid-cols-[200px_1fr] gap-2 sm:gap-8 py-5 " + (last ? "" : "border-b border-zinc-100")}>
       <div>
         <p className="text-[14px] text-zinc-900">{label}</p>
         {hint && <p className="text-[12.5px] text-zinc-400 mt-0.5">{hint}</p>}
@@ -126,6 +145,22 @@ function Input({
           : "border-zinc-200 focus:border-zinc-900")
       }
     />
+  );
+}
+
+function Select({
+  value, onChange, options,
+}: { value: string; onChange: (v: string) => void; options: Array<{ code: string; label: string }> }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full max-w-sm px-0 py-1.5 border-0 border-b border-zinc-200 text-[14px] text-zinc-900 bg-transparent outline-none transition focus:border-zinc-900"
+    >
+      {options.map((opt) => (
+        <option key={opt.code} value={opt.code}>{opt.label}</option>
+      ))}
+    </select>
   );
 }
 
@@ -156,6 +191,7 @@ export default function SettingsPage() {
   const [plan, setPlan] = useState("Small Business");
   const [ai, setAI] = useState<AISettings>({ sensitivity: "Balanced" });
   const [alerts, setAlerts] = useState<AlertSettings>({ dealRisk: true, pipeline: true, forecast: true });
+  const [currency, setCurrency] = useState<OrgCurrency>("INR");
   const [stages, setStages] = useState<Stage[]>([
     { name: "Leads", days: 3, conversion: 60 },
     { name: "Qualified", days: 6, conversion: 55 },
@@ -194,6 +230,9 @@ export default function SettingsPage() {
         pipeline: o?.settings?.alerts?.pipeline ?? true,
         forecast: o?.settings?.alerts?.forecast ?? true,
       };
+      const loadedCurrency: OrgCurrency = isOrgCurrency(o?.settings?.currency)
+        ? o!.settings!.currency as OrgCurrency
+        : "INR";
 
       setProfile({
         userId: resolvedUserId,
@@ -205,7 +244,14 @@ export default function SettingsPage() {
       setPlan(friendlyPlan(o?.plan));
       setAI({ sensitivity: loadedSensitivity });
       setAlerts(loadedAlerts);
-      setSavedSnapshot({ fullName: loadedFullName, company: loadedCompany, sensitivity: loadedSensitivity, alerts: loadedAlerts });
+      setCurrency(loadedCurrency);
+      setSavedSnapshot({
+        fullName: loadedFullName,
+        company: loadedCompany,
+        sensitivity: loadedSensitivity,
+        alerts: loadedAlerts,
+        currency: loadedCurrency,
+      });
     } catch (err) {
       console.error("Failed to load settings", err);
       setLoadError(true);
@@ -227,9 +273,10 @@ export default function SettingsPage() {
       ai.sensitivity !== savedSnapshot.sensitivity ||
       alerts.dealRisk !== savedSnapshot.alerts.dealRisk ||
       alerts.pipeline !== savedSnapshot.alerts.pipeline ||
-      alerts.forecast !== savedSnapshot.alerts.forecast
+      alerts.forecast !== savedSnapshot.alerts.forecast ||
+      currency !== savedSnapshot.currency
     );
-  }, [profile.fullName, profile.company, ai.sensitivity, alerts, savedSnapshot]);
+  }, [profile.fullName, profile.company, ai.sensitivity, alerts, currency, savedSnapshot]);
 
   const handleSave = async () => {
     if (!isDirty) return;
@@ -265,6 +312,7 @@ export default function SettingsPage() {
             settings: {
               aiSensitivity: ai.sensitivity,
               alerts: { dealRisk: alerts.dealRisk, pipeline: alerts.pipeline, forecast: alerts.forecast },
+              currency,
             },
           }),
         })
@@ -272,7 +320,20 @@ export default function SettingsPage() {
 
       await Promise.all(requests);
 
-      setSavedSnapshot({ fullName: profile.fullName.trim(), company: profile.company.trim(), sensitivity: ai.sensitivity, alerts: { ...alerts } });
+      /* Currency changed — clear the cached value so useOrgCurrency()
+         re-fetches instead of showing the stale currency everywhere
+         else in the app until next full page reload. */
+      if (currency !== savedSnapshot?.currency) {
+        invalidateOrgCurrencyCache();
+      }
+
+      setSavedSnapshot({
+        fullName: profile.fullName.trim(),
+        company: profile.company.trim(),
+        sensitivity: ai.sensitivity,
+        alerts: { ...alerts },
+        currency,
+      });
       setLastSavedAt(new Date());
       toast.success("Settings saved");
     } catch (err) {
@@ -288,6 +349,7 @@ export default function SettingsPage() {
     setProfile((p) => ({ ...p, fullName: savedSnapshot.fullName, company: savedSnapshot.company }));
     setAI({ sensitivity: savedSnapshot.sensitivity });
     setAlerts(savedSnapshot.alerts);
+    setCurrency(savedSnapshot.currency);
   };
 
   const sensitivityHint: Record<Sensitivity, string> = {
@@ -396,6 +458,9 @@ export default function SettingsPage() {
           </FieldRow>
           <FieldRow label="Company">
             <Input value={profile.company} onChange={(v) => setProfile((p) => ({ ...p, company: v }))} placeholder="Company name" />
+          </FieldRow>
+          <FieldRow label="Currency" hint="All deals and reports across your workspace use this currency">
+            <Select value={currency} onChange={(v) => setCurrency(v as OrgCurrency)} options={CURRENCY_OPTIONS} />
           </FieldRow>
           <FieldRow label="Role" hint="Assigned by your admin" last>
             <Input value={profile.role} readOnly />
