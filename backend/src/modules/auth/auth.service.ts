@@ -3,6 +3,7 @@ import mongoose, { Types } from "mongoose";
 
 import User from "../users/user.model.js";
 import Organization from "../organizations/organization.model.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 import Role from "../rbac/role.model.js";
 import Pipeline from "../pipelines/pipeline.model.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -15,6 +16,7 @@ interface RegisterInput {
   password: string;
   organizationName?: string;
   fullName?: string;
+  currency?: OrganizationCurrency; // user's dropdown choice, or IP-detected default from controller
 }
 
 interface LoginInput {
@@ -26,6 +28,7 @@ interface GoogleProfileInput {
   googleId: string;
   email: string;
   fullName?: string;
+  currency?: OrganizationCurrency; // IP-detected default from controller
 }
 
 /* ================= JWT ================= */
@@ -148,6 +151,9 @@ class AuthService {
               name: orgName,
               slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
               plan: "SMALL_BUSINESS",
+              settings: {
+                currency: input.currency || "INR",
+              },
             },
           ],
           { session }
@@ -255,7 +261,7 @@ if (!userAny.role || !userAny.roleId) {
 }
 
     let org = await Organization.findById(user.organizationId)
-      .select("_id name slug plan createdAt updatedAt");
+      .select("_id name slug plan createdAt updatedAt settings");
 
     if (!org) {
       org = await Organization.create({
@@ -374,7 +380,7 @@ if (!userAny.role || !userAny.roleId) {
       }
 
       let org = await Organization.findById(existingUser.organizationId).select(
-        "_id name slug plan createdAt updatedAt"
+        "_id name slug plan createdAt updatedAt settings"
       );
 
       if (!org) {
@@ -382,6 +388,9 @@ if (!userAny.role || !userAny.roleId) {
           name: "Personal Workspace",
           slug: `workspace-${existingUser._id.toString()}`,
           plan: "PRO",
+          settings: {
+            currency: profile.currency || "INR",
+          },
         });
 
         await User.findByIdAndUpdate(existingUser._id, {
@@ -440,6 +449,9 @@ if (!userAny.role || !userAny.roleId) {
               name: orgName,
               slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
               plan: "SMALL_BUSINESS",
+              settings: {
+                currency: profile.currency || "INR",
+              },
             },
           ],
           { session }
@@ -497,7 +509,10 @@ if (!userAny.role || !userAny.roleId) {
     }
   }
 
-  /* ================= PROFILE ================= */
+  /* ================= PROFILE =================
+     Used by GET /api/auth/me. Now also fetches the organization and
+     attaches its currency so the frontend can call this endpoint to
+     populate useOrgCurrency() instead of hardcoding "INR". */
 
   async getProfile(userId: string) {
     const user = await User.findById(userId)
@@ -508,7 +523,24 @@ if (!userAny.role || !userAny.roleId) {
       throw ApiError.notFound("User not found");
     }
 
-    return user;
+    const org = await Organization.findById(user.organizationId).select(
+      "_id name slug plan settings"
+    );
+
+    const userObj = user.toObject();
+
+    return {
+      ...userObj,
+      organization: org
+        ? {
+            _id: org._id,
+            name: org.name,
+            slug: org.slug,
+            plan: org.plan,
+            currency: org.settings?.currency ?? "INR",
+          }
+        : null,
+    };
   }
 
   /* ================= FORGOT PASSWORD ================= */
