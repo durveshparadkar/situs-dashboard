@@ -25,6 +25,8 @@
 //   - Alert generation — triggers when score crosses thresholds
 
 import type { Types } from "mongoose";
+import { formatCurrency } from "../../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../../organizations/organization.model.js";
 
 // ============================================================
 // VERSIONING
@@ -88,7 +90,7 @@ const RISK_CONFIG = {
 
   /** Value-vs-momentum: high-value deals with falling momentum are worse */
   highValueFalling: {
-    valueMin: 500_000,     // ₹5 Lakh+
+    valueMin: 500_000,     // ₹5 Lakh+ (or equivalent in org's currency)
     lastActivityDaysMin: 7,
     weight: 10,
   },
@@ -136,8 +138,11 @@ export interface DealRiskSignals {
   /** Display name — surfaces in reasons / human-readable output */
   name: string;
 
-  /** Deal value in base currency (rupees, not paise) */
+  /** Deal value in base currency unit (not paise/cents) */
   value: number;
+
+  /** Org's currency for formatting factor messages. Defaults to INR. */
+  currency?: OrganizationCurrency;
 
   /**
    * Canonical stage name (uppercase, snake_case). Pass the resolved
@@ -221,6 +226,7 @@ export interface DealRiskResult {
 export function scoreDealRisk(signals: DealRiskSignals): DealRiskResult {
   const computedAt = new Date();
   const factors: DealRiskFactor[] = [];
+  const currency = signals.currency ?? "INR";
 
   // Closed deals can't be at risk by definition
   if (
@@ -355,7 +361,7 @@ export function scoreDealRisk(signals: DealRiskSignals): DealRiskResult {
   ) {
     factors.push({
       code:    "HIGH_VALUE_FALLING",
-      message: "High-value deal (" + formatINR(signals.value) +
+      message: "High-value deal (" + formatCurrency(signals.value, currency) +
                ") with falling momentum",
       weight:  RISK_CONFIG.highValueFalling.weight,
     });
@@ -424,19 +430,12 @@ export function getRiskLevelFromScore(score: number): DealRiskLevel {
 }
 
 /**
- * Compact INR formatter for human-readable factor messages.
- *   500000  → "₹5 Lakh"
- *   12000000 → "₹1.2 Cr"
- *   50000   → "₹50,000"
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
  */
 function formatINR(rupees: number): string {
-  if (rupees >= 10_000_000) {
-    return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-  }
-  if (rupees >= 100_000) {
-    return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-  }
-  return "\u20B9" + rupees.toLocaleString("en-IN");
+  return formatCurrency(rupees, "INR");
 }
 
 // ============================================================
@@ -514,6 +513,7 @@ export function calculateDealRisk(deal: {
   lastActivityDays: number;
   stageDays?:       number;
   ageDays?:         number;
+  currency?:        OrganizationCurrency;
 }): { name: string; riskScore: number; reasons: string[] } {
   const result = scoreDealRisk({
     name:               deal.name,
@@ -522,6 +522,7 @@ export function calculateDealRisk(deal: {
     lastActivityDays:   deal.lastActivityDays,
     ...(deal.stageDays !== undefined && { daysInCurrentStage: deal.stageDays }),
     ...(deal.ageDays   !== undefined && { ageDays: deal.ageDays }),
+    ...(deal.currency  !== undefined && { currency: deal.currency }),
   });
 
   return {
@@ -561,6 +562,7 @@ export function extractRiskSignals(input: {
   _id?:                Types.ObjectId | string;
   title?:              string;
   value?:              number;
+  currency?:           OrganizationCurrency;
   stageName:           string;
   lastActivityAt?:     Date | null;
   daysInCurrentStage?: number;
@@ -583,6 +585,7 @@ export function extractRiskSignals(input: {
   };
 
   if (input._id !== undefined) signals.dealId = input._id;
+  if (input.currency !== undefined) signals.currency = input.currency;
   if (input.daysInCurrentStage !== undefined) signals.daysInCurrentStage = input.daysInCurrentStage;
   if (input.ageDays !== undefined) signals.ageDays = input.ageDays;
   if (input.probability !== undefined) signals.probability = input.probability;

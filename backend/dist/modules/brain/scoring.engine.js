@@ -1,3 +1,4 @@
+import { formatCurrency } from "../../shared/utils/currency.js";
 /* =====================================================
    ENGINE VERSION
    Bump this when scoring logic changes meaningfully.
@@ -75,6 +76,16 @@ export const SCORING_CONFIG = {
     maxScore: 100,
 };
 /* =====================================================
+   CURRENCY HELPER
+   LeadContext may not have a currency field yet — accessed
+   defensively so this compiles regardless. Add
+   currency?: OrganizationCurrency to brain.types.ts's
+   LeadContext for full type safety when convenient.
+===================================================== */
+function getContextCurrency(context) {
+    return context.currency ?? "INR";
+}
+/* =====================================================
    HELPERS
 ===================================================== */
 function clampScore(score) {
@@ -130,12 +141,7 @@ function dealValueFactor(context) {
     const cfg = SCORING_CONFIG.dealValue;
     const raw = logScale(value, cfg.multiplier);
     const delta = Math.min(raw, cfg.maxBonus);
-    // Format value for the reason string
-    const formatted = value >= 10_000_000
-        ? `₹${(value / 10_000_000).toFixed(1)}Cr`
-        : value >= 100_000
-            ? `₹${(value / 100_000).toFixed(1)}L`
-            : `₹${value.toLocaleString("en-IN")}`;
+    const formatted = formatCurrency(value, getContextCurrency(context));
     return {
         factor: "deal_value",
         delta: Math.round(delta * 10) / 10,
@@ -203,7 +209,7 @@ function highValueNoReplyFactor(context) {
     return {
         factor: "high_value_no_reply",
         delta: -cfg.penalty,
-        reason: "High-value deal with no recent contact",
+        reason: `High-value deal with no recent contact`,
     };
 }
 function tagModifiersFactor(context) {

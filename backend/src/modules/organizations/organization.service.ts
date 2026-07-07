@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
-import Organization, { IOrganization } from "./organization.model.js";
+import Organization, {
+  IOrganization,
+  type OrganizationCurrency,
+} from "./organization.model.js";
 
 /* ================= TYPES ================= */
 
@@ -17,7 +20,7 @@ export interface UpdateOrgInput {
   name?: string;
   settings?: {
     timezone?: string;
-    currency?: string;
+    currency?: OrganizationCurrency;
   };
 }
 

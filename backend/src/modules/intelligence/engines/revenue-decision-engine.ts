@@ -21,6 +21,8 @@
 // Pure function. No I/O. Deterministic given same inputs.
 
 import type { Types } from "mongoose";
+import { formatCurrency } from "../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 
 // ============================================================
 // VERSIONING
@@ -70,7 +72,7 @@ const REVENUE_DECISION_CONFIG = {
   /** Quick win — low value but healthy + late stage */
   quickWin: {
     healthScoreMin:    65,
-    valueMax:          200_000, // ₹2 Lakh and below
+    valueMax:          200_000, // ₹2 Lakh and below (or equivalent)
     basePriority:      35,
   },
 
@@ -141,7 +143,7 @@ export interface RevenueDecisionSignals {
   dealId?: string | Types.ObjectId;
   name:    string;
 
-  /** Deal value in rupees */
+  /** Deal value in base currency unit */
   value?: number;
 
   /** Canonical stage name (uppercase, snake_case) */
@@ -302,14 +304,13 @@ function isOpenDeal(s: RevenueDecisionSignals): boolean {
   );
 }
 
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
+ */
 function formatINR(rupees: number): string {
-  if (rupees >= 10_000_000) {
-    return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-  }
-  if (rupees >= 100_000) {
-    return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-  }
-  return "\u20B9" + rupees.toLocaleString("en-IN");
+  return formatCurrency(rupees, "INR");
 }
 
 /**
@@ -523,7 +524,8 @@ function detectHotDealOpportunity(
 }
 
 function detectQuickWin(
-  s: RevenueDecisionSignals
+  s: RevenueDecisionSignals,
+  currency: OrganizationCurrency
 ): RevenueAction | null {
   const value = s.value ?? 0;
   if (value === 0) return null;
@@ -543,7 +545,7 @@ function detectQuickWin(
     title:         "Quick win: " + s.name,
     action:        "Close this deal fast — small but healthy, low effort to convert",
     reason:        "Healthy late-stage deal under " +
-                   formatINR(REVENUE_DECISION_CONFIG.quickWin.valueMax),
+                   formatCurrency(REVENUE_DECISION_CONFIG.quickWin.valueMax, currency),
     priorityScore: Math.round(score),
     revenueImpact: value,
     ...(s.dealId !== undefined && { dealId: s.dealId }),
@@ -645,6 +647,10 @@ function detectCoachingSignals(
 /**
  * Generate prioritized revenue actions from pre-scored deals.
  *
+ * @param deals    Deals to analyze (typically an org's open pipeline)
+ * @param currency Org's currency for formatted messages. Defaults to
+ *                 INR if not passed — safe for existing callers.
+ *
  * Returns:
  *   - topActions: capped, ranked actions (best for dashboards)
  *   - allActions: full uncapped list (for "show all" views)
@@ -653,7 +659,8 @@ function detectCoachingSignals(
  *   - summary message
  */
 export function generateRevenueActions(
-  deals: RevenueDecisionSignals[]
+  deals: RevenueDecisionSignals[],
+  currency: OrganizationCurrency = "INR"
 ): RevenueDecisionResult {
   const computedAt = new Date();
   const allActions: RevenueAction[] = [];
@@ -683,7 +690,7 @@ export function generateRevenueActions(
     const hotDeal = detectHotDealOpportunity(d);
     if (hotDeal) dealActions.push(hotDeal);
 
-    const quickWin = detectQuickWin(d);
+    const quickWin = detectQuickWin(d, currency);
     if (quickWin) dealActions.push(quickWin);
 
     // De-dup: critical-risk + late-stage-at-risk on same deal = redundant.
@@ -773,7 +780,8 @@ export function generateRevenueActions(
   const summary = buildSummary(
     topActions,
     criticalRevenueAtRisk,
-    opportunityRevenue
+    opportunityRevenue,
+    currency
   );
 
   return {
@@ -798,7 +806,8 @@ export function generateRevenueActions(
 function buildSummary(
   actions: RevenueAction[],
   criticalRevenue: number,
-  opportunityRevenue: number
+  opportunityRevenue: number,
+  currency: OrganizationCurrency
 ): string {
   if (actions.length === 0) {
     return "All clear — no critical actions needed today";
@@ -814,14 +823,14 @@ function buildSummary(
   if (criticalCount > 0) {
     parts.push(
       criticalCount + " critical action" + (criticalCount === 1 ? "" : "s") +
-      " (" + formatINR(criticalRevenue) + " at risk)"
+      " (" + formatCurrency(criticalRevenue, currency) + " at risk)"
     );
   }
 
   if (oppCount > 0) {
     parts.push(
       oppCount + " opportunity" + (oppCount === 1 ? "" : " opportunities") +
-      " (" + formatINR(opportunityRevenue) + " potential)"
+      " (" + formatCurrency(opportunityRevenue, currency) + " potential)"
     );
   }
 

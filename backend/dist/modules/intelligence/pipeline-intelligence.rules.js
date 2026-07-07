@@ -1,3 +1,4 @@
+import { formatCurrency } from "../../shared/utils/currency.js";
 /* ================= HELPERS ================= */
 function daysSince(date) {
     if (!date)
@@ -16,6 +17,16 @@ function makeRecId(dealId, ruleCode) {
     // Deterministic ID — same rule on same deal yields same ID,
     // so re-runs naturally deduplicate.
     return `${dealId}:${ruleCode}`;
+}
+/**
+ * DealDocument may not have a currency field yet — accessed
+ * defensively so this compiles regardless. Add
+ * currency?: OrganizationCurrency to the Deal schema for full
+ * type safety when convenient (deals should inherit their org's
+ * currency at creation time).
+ */
+function getDealCurrency(deal) {
+    return deal.currency ?? "INR";
 }
 /* =====================================================
    RULE 1 — STALE DEAL RE-ENGAGEMENT
@@ -48,7 +59,7 @@ export const staleDealRule = ({ deal }) => {
             message: `This deal has gone quiet for ${Math.floor(inactivityDays)} days. A short re-engagement email today is the highest-ROI action.`,
             reasoning: [
                 `No activity logged for ${Math.floor(inactivityDays)} days`,
-                `Deal value: ₹${deal.value.toLocaleString("en-IN")}`,
+                `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
                 deal.probability < 50
                     ? `Probability is only ${deal.probability}% — momentum loss likely`
                     : `Probability still healthy at ${deal.probability}% — recoverable`,
@@ -109,7 +120,7 @@ export const closeDateSlippageRule = ({ deal }) => {
                     recentlyActive
                         ? `Probability is ${deal.probability}% (need 70%+ for a real commit)`
                         : `Last activity ${Math.floor(daysSince(deal.lastActivityAt))} days ago`,
-                    `Value at risk: ₹${deal.value.toLocaleString("en-IN")}`,
+                    `Value at risk: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
                 ],
                 confidence: 90,
                 expectedImpact: "high",
@@ -193,7 +204,7 @@ export const highValueAtRiskRule = ({ deal, orgAvgDealSize }) => {
             title: `High-value deal at ${deal.riskLevel} risk: ${deal.title}`,
             message: `This is a ${(deal.value / benchmark).toFixed(1)}x average-sized deal showing ${deal.riskLevel} risk. Loop in your manager today.`,
             reasoning: [
-                `Deal value: ₹${deal.value.toLocaleString("en-IN")} (${(deal.value / benchmark).toFixed(1)}x team average)`,
+                `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))} (${(deal.value / benchmark).toFixed(1)}x team average)`,
                 `Risk level: ${deal.riskLevel} (score ${deal.riskScore})`,
                 `Top risk factors: ${(deal.riskFactors ?? [])
                     .slice(0, 2)
@@ -262,7 +273,7 @@ export const competitiveThreatRule = ({ deal }) => {
             message: `${strongCompetitors.map(c => c.name).join(", ")} is positioned as a strong alternative. Send a battle-card-backed differentiation note within 48 hours.`,
             reasoning: [
                 `Strong competitors: ${strongCompetitors.map(c => c.name).join(", ")}`,
-                `Deal value: ₹${deal.value.toLocaleString("en-IN")}`,
+                `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
                 `Probability: ${deal.probability}%`,
             ],
             confidence: 85,

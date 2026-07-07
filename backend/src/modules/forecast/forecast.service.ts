@@ -2,6 +2,9 @@
 import mongoose from "mongoose";
 import Deal from "../deals/deal.model.js";
 import Pipeline from "../pipelines/pipeline.model.js";
+import Organization from "../organizations/organization.model.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
+import { formatCurrency } from "../../shared/utils/currency.js";
 import { dbLogger } from "../../utils/logger.js";
 
 /* =====================================================
@@ -189,6 +192,20 @@ function safeInt(value: unknown, fallback = 0): number {
   return Math.round(value);
 }
 
+/**
+ * Fetch the org's configured currency. Defaults to INR if the org
+ * lookup fails or currency was never set — never blocks forecast
+ * generation over a missing/misconfigured currency setting.
+ */
+async function getOrgCurrency(orgId: string): Promise<OrganizationCurrency> {
+  try {
+    const org = await Organization.findById(orgId).select("settings.currency").lean();
+    return (org?.settings?.currency as OrganizationCurrency) ?? "INR";
+  } catch {
+    return "INR";
+  }
+}
+
 /* =====================================================
    SERVICE
 ===================================================== */
@@ -239,10 +256,11 @@ class ForecastService {
     );
 
     /* ── Run aggregations in parallel for speed ── */
-    const [openMetrics, closedMetrics, hygieneMetrics] = await Promise.all([
+    const [openMetrics, closedMetrics, hygieneMetrics, currency] = await Promise.all([
       this.aggregateOpenPipeline(orgId, filters),
       this.aggregateClosedDeals(orgId, start, end, filters),
       this.aggregateHygieneSignals(orgId, filters),
+      getOrgCurrency(orgId),
     ]);
 
     /* ── Build summary ── */
@@ -285,7 +303,7 @@ class ForecastService {
     };
 
     /* ── Generate insights ── */
-    const insights = this.generateInsights(summary, metrics);
+    const insights = this.generateInsights(summary, metrics, currency);
 
     const durationMs = Date.now() - startedAt;
 
@@ -669,7 +687,8 @@ class ForecastService {
   ===================================================== */
   generateInsights(
     summary: ForecastSummary,
-    metrics: ForecastMetrics
+    metrics: ForecastMetrics,
+    currency: OrganizationCurrency = "INR"
   ): ForecastInsight[] {
     const insights: ForecastInsight[] = [];
     const cfg = FORECAST_CONFIG.insights;
@@ -713,8 +732,8 @@ class ForecastService {
         category: "forecast_accuracy",
         message: "Weighted forecast is weak relative to pipeline size",
         reasoning: [
-          `Weighted: ₹${summary.weightedForecast.toLocaleString("en-IN")}`,
-          `Total pipeline: ₹${summary.totalPipelineValue.toLocaleString("en-IN")}`,
+          `Weighted: ${formatCurrency(summary.weightedForecast, currency)}`,
+          `Total pipeline: ${formatCurrency(summary.totalPipelineValue, currency)}`,
           "Consider re-qualifying low-probability deals",
         ],
       });

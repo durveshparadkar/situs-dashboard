@@ -25,6 +25,8 @@
 //   - Notification service → optionally emails high-priority alerts
 
 import type { Types} from "mongoose";
+import { formatCurrency } from "../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 
 // ============================================================
 // VERSIONING
@@ -59,9 +61,9 @@ const ATTENTION_CONFIG = {
 
   /** High-value threshold and inactivity tolerance */
   highValue: {
-    valueMin:               150_000, // ₹1.5 Lakh+
+    valueMin:               150_000, // ₹1.5 Lakh+ (or equivalent)
     inactivityDays:         5,
-    enterpriseValueMin:     1_000_000, // ₹10 Lakh+ — higher urgency
+    enterpriseValueMin:     1_000_000, // ₹10 Lakh+ (or equivalent) — higher urgency
     enterpriseInactivityDays: 3,
   },
 
@@ -143,8 +145,11 @@ export interface DealAttentionSignals {
   /** Display name for human-readable alerts */
   name: string;
 
-  /** Deal value in rupees (whole units, not paise) */
+  /** Deal value in base currency unit (whole units, not paise/cents) */
   value: number;
+
+  /** Org's currency for formatting alert messages. Defaults to INR. */
+  currency?: OrganizationCurrency;
 
   /** Canonical stage name (uppercase, snake_case) */
   stage: string;
@@ -240,6 +245,7 @@ export function detectDealAttention(
   const stage = normalizeStageName(signals.stage);
   const a     = signals.lastActivityDays;
   const stageDays = signals.daysInCurrentStage ?? 0;
+  const currency  = signals.currency ?? "INR";
 
   // -----------------------------------------------------------
   // ENTERPRISE AT RISK — highest priority
@@ -253,7 +259,7 @@ export function detectDealAttention(
       buildAlert({
         signals,
         type:    ATTENTION_ALERT_TYPES.ENTERPRISE_AT_RISK,
-        message: signals.name + " (" + formatINR(signals.value) +
+        message: signals.name + " (" + formatCurrency(signals.value, currency) +
                  ") quiet for " + a + " days",
         recommendedAction: "Call decision-maker today — protect this deal",
         priority:    "critical",
@@ -274,7 +280,7 @@ export function detectDealAttention(
         signals,
         type:    ATTENTION_ALERT_TYPES.HIGH_VALUE_RISK,
         message: signals.name + " is high-value (" +
-                 formatINR(signals.value) + ") and needs attention",
+                 formatCurrency(signals.value, currency) + ") and needs attention",
         recommendedAction: "Send a follow-up email or schedule a check-in call",
         priority:    "high",
         impactScore: 80,
@@ -482,14 +488,13 @@ function humanizeStage(stage: string): string {
   return stage.toLowerCase().replace(/_/g, " ");
 }
 
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
+ */
 function formatINR(rupees: number): string {
-  if (rupees >= 10_000_000) {
-    return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-  }
-  if (rupees >= 100_000) {
-    return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-  }
-  return "\u20B9" + rupees.toLocaleString("en-IN");
+  return formatCurrency(rupees, "INR");
 }
 
 // ============================================================
@@ -552,6 +557,7 @@ export function extractAttentionSignals(input: {
   _id?:                Types.ObjectId | string;
   title?:              string;
   value?:              number;
+  currency?:           OrganizationCurrency;
   stageName:           string;
   lastActivityAt?:     Date | null;
   daysInCurrentStage?: number;
@@ -576,6 +582,7 @@ export function extractAttentionSignals(input: {
   };
 
   if (input._id !== undefined) signals.dealId = input._id;
+  if (input.currency !== undefined) signals.currency = input.currency;
   if (input.daysInCurrentStage !== undefined) signals.daysInCurrentStage = input.daysInCurrentStage;
   if (input.probability !== undefined) signals.probability = input.probability;
   if (input.assignedToName !== undefined) signals.assignedToName = input.assignedToName;

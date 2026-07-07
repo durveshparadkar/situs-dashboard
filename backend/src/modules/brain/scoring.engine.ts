@@ -1,5 +1,7 @@
 // scoring.engine.ts
 import { LeadContext } from "./brain.types.js";
+import { formatCurrency } from "../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 
 /* =====================================================
    ENGINE VERSION
@@ -116,6 +118,18 @@ export interface ScoreBreakdown {
 }
 
 /* =====================================================
+   CURRENCY HELPER
+   LeadContext may not have a currency field yet — accessed
+   defensively so this compiles regardless. Add
+   currency?: OrganizationCurrency to brain.types.ts's
+   LeadContext for full type safety when convenient.
+===================================================== */
+
+function getContextCurrency(context: LeadContext): OrganizationCurrency {
+  return (context as unknown as { currency?: OrganizationCurrency }).currency ?? "INR";
+}
+
+/* =====================================================
    HELPERS
 ===================================================== */
 
@@ -183,13 +197,7 @@ function dealValueFactor(context: LeadContext): ScoreFactor | null {
   const raw   = logScale(value, cfg.multiplier);
   const delta = Math.min(raw, cfg.maxBonus);
 
-  // Format value for the reason string
-  const formatted =
-    value >= 10_000_000
-      ? `₹${(value / 10_000_000).toFixed(1)}Cr`
-      : value >= 100_000
-      ? `₹${(value / 100_000).toFixed(1)}L`
-      : `₹${value.toLocaleString("en-IN")}`;
+  const formatted = formatCurrency(value, getContextCurrency(context));
 
   return {
     factor: "deal_value",
@@ -265,7 +273,7 @@ function highValueNoReplyFactor(context: LeadContext): ScoreFactor | null {
   return {
     factor: "high_value_no_reply",
     delta: -cfg.penalty,
-    reason: "High-value deal with no recent contact",
+    reason: `High-value deal with no recent contact`,
   };
 }
 

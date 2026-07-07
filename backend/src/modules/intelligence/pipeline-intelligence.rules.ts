@@ -1,5 +1,7 @@
 // pipeline-intelligence.rules.ts
 import { DealDocument, RiskLevel } from "../deals/deal.model.js";
+import { formatCurrency } from "../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 
 /* =====================================================
    PIPELINE INTELLIGENCE RULES
@@ -59,7 +61,7 @@ export interface Recommendation {
   /* Context */
   confidence: number;                          // 0-100, how confident the rule is
   expectedImpact?: "low" | "medium" | "high";  // potential business impact
-  estimatedValueAtRisk?: number;               // INR value the deal could lose
+  estimatedValueAtRisk?: number;               // deal's local currency value the deal could lose
 
   /* Suggested due date */
   suggestedDueAt?: Date;
@@ -103,6 +105,17 @@ function makeRecId(dealId: string, ruleCode: string): string {
   return `${dealId}:${ruleCode}`;
 }
 
+/**
+ * DealDocument may not have a currency field yet — accessed
+ * defensively so this compiles regardless. Add
+ * currency?: OrganizationCurrency to the Deal schema for full
+ * type safety when convenient (deals should inherit their org's
+ * currency at creation time).
+ */
+function getDealCurrency(deal: DealDocument): OrganizationCurrency {
+  return (deal as unknown as { currency?: OrganizationCurrency }).currency ?? "INR";
+}
+
 /* =====================================================
    RULE 1 — STALE DEAL RE-ENGAGEMENT
    Trigger: open deal with no activity for 7+ days
@@ -136,7 +149,7 @@ export const staleDealRule: IntelligenceRule = ({ deal }) => {
       message: `This deal has gone quiet for ${Math.floor(inactivityDays)} days. A short re-engagement email today is the highest-ROI action.`,
       reasoning: [
         `No activity logged for ${Math.floor(inactivityDays)} days`,
-        `Deal value: ₹${deal.value.toLocaleString("en-IN")}`,
+        `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
         deal.probability < 50
           ? `Probability is only ${deal.probability}% — momentum loss likely`
           : `Probability still healthy at ${deal.probability}% — recoverable`,
@@ -202,7 +215,7 @@ export const closeDateSlippageRule: IntelligenceRule = ({ deal }) => {
           recentlyActive
             ? `Probability is ${deal.probability}% (need 70%+ for a real commit)`
             : `Last activity ${Math.floor(daysSince(deal.lastActivityAt))} days ago`,
-          `Value at risk: ₹${deal.value.toLocaleString("en-IN")}`,
+          `Value at risk: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
         ],
         confidence: 90,
         expectedImpact: "high",
@@ -289,7 +302,7 @@ export const highValueAtRiskRule: IntelligenceRule = ({ deal, orgAvgDealSize }) 
       title: `High-value deal at ${deal.riskLevel} risk: ${deal.title}`,
       message: `This is a ${(deal.value / benchmark).toFixed(1)}x average-sized deal showing ${deal.riskLevel} risk. Loop in your manager today.`,
       reasoning: [
-        `Deal value: ₹${deal.value.toLocaleString("en-IN")} (${(deal.value / benchmark).toFixed(1)}x team average)`,
+        `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))} (${(deal.value / benchmark).toFixed(1)}x team average)`,
         `Risk level: ${deal.riskLevel} (score ${deal.riskScore})`,
         `Top risk factors: ${(deal.riskFactors ?? [])
           .slice(0, 2)
@@ -365,7 +378,7 @@ export const competitiveThreatRule: IntelligenceRule = ({ deal }) => {
       message: `${strongCompetitors.map(c => c.name).join(", ")} is positioned as a strong alternative. Send a battle-card-backed differentiation note within 48 hours.`,
       reasoning: [
         `Strong competitors: ${strongCompetitors.map(c => c.name).join(", ")}`,
-        `Deal value: ₹${deal.value.toLocaleString("en-IN")}`,
+        `Deal value: ${formatCurrency(deal.value, getDealCurrency(deal))}`,
         `Probability: ${deal.probability}%`,
       ],
       confidence: 85,

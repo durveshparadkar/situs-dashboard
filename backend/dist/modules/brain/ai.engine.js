@@ -49,6 +49,7 @@ class PredictionCache {
             activityCount: input.activityCount,
             signals: [...input.signals].sort(),
             dealValue: input.dealValue ?? 0,
+            currency: input.currency ?? "INR",
         });
         return crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
     }
@@ -227,7 +228,7 @@ Lead data:
 - Days since last activity: ${input.daysSinceLastActivity}
 - Total activities: ${input.activityCount}
 - Risk signals detected: ${input.signals.length ? input.signals.join(", ") : "none"}
-${input.dealValue ? `- Deal value: ₹${input.dealValue.toLocaleString("en-IN")}` : ""}
+${input.dealValue ? `- Deal value: ${formatCurrency(input.dealValue, input.currency ?? "INR")}` : ""}
 
 Return this exact JSON shape:
 {
@@ -390,4 +391,7 @@ export const aiPredictorInternals = {
     isCircuitOpen: () => circuitBreaker.isOpen(),
     heuristicFallback,
 };
+function formatCurrency(dealValue, arg1) {
+    throw new Error("Function not implemented.");
+}
 //# sourceMappingURL=ai.engine.js.map

@@ -7,6 +7,8 @@ import {
 
 import { calculateScore } from "./scoring.engine.js";
 import { detectSignals } from "./signals.engine.js";
+import { formatCurrency } from "../../shared/utils/currency.js";
+import type { OrganizationCurrency } from "../organizations/organization.model.js";
 
 /* =====================================================
    CONFIG — all tunable thresholds in one place
@@ -67,6 +69,19 @@ interface BrainDecisionMeta {
 }
 
 /* =====================================================
+   CURRENCY HELPER
+   LeadContext may not have a currency field yet (added
+   defensively here so this compiles regardless — add
+   currency?: OrganizationCurrency to brain.types.ts's
+   LeadContext for full type safety when convenient). Falls
+   back to INR, same as before this refactor.
+===================================================== */
+
+function getContextCurrency(context: LeadContext): OrganizationCurrency {
+  return (context as unknown as { currency?: OrganizationCurrency }).currency ?? "INR";
+}
+
+/* =====================================================
    PRIORITY ORDER — for comparisons
 ===================================================== */
 
@@ -97,6 +112,7 @@ function derivePriority(
 ): PriorityResult {
   const dealValue      = context.dealValue ?? 0;
   const inactivityDays = context.daysSinceLastActivity;
+  const currency        = getContextCurrency(context);
   const reasoning: string[] = [];
 
   // 1️⃣ Critical signal overrides everything
@@ -112,7 +128,7 @@ function derivePriority(
     dealValue > BRAIN_CONFIG.highValueThreshold
   ) {
     reasoning.push(
-      `High-value deal (₹${dealValue.toLocaleString("en-IN")}) inactive for ${inactivityDays} days`
+      `High-value deal (${formatCurrency(dealValue, currency)}) inactive for ${inactivityDays} days`
     );
     
     return { priority: "critical", reasoning };
@@ -137,7 +153,7 @@ function derivePriority(
     return { priority: "high", reasoning };
   }
   if (score >= BRAIN_CONFIG.scoreMedium) {
-    reasoning.push(`Medium lead score (${score}))`);
+    reasoning.push(`Medium lead score (${score})`);
     return { priority: "medium", reasoning };
   }
 
@@ -159,6 +175,7 @@ function buildRecommendedActions(
 
   const dealValue      = context.dealValue ?? 0;
   const inactivityDays = context.daysSinceLastActivity;
+  const currency        = getContextCurrency(context);
 
   /* ── Signal-driven actions ── */
   for (const signal of signals) {
@@ -175,7 +192,7 @@ function buildRecommendedActions(
       case "HIGH_VALUE_NO_REPLY":
         actionMap.set("escalate_no_reply", {
           action: "Escalate high-value deal and re-engage client",
-          reason: `High-value deal (₹${dealValue.toLocaleString("en-IN")}) without response`,
+          reason: `High-value deal (${formatCurrency(dealValue, currency)}) without response`,
           priority: "high",
           category: "escalation",
         });
@@ -249,7 +266,7 @@ function buildRecommendedActions(
   if (dealValue > BRAIN_CONFIG.enterpriseValueThreshold) {
     actionMap.set("senior_assignment", {
       action: "Assign senior sales rep for strategic handling",
-      reason: `Enterprise-tier deal value (₹${dealValue.toLocaleString("en-IN")})`,
+      reason: `Enterprise-tier deal value (${formatCurrency(dealValue, currency)})`,
       priority: "high",
       category: "escalation",
     });

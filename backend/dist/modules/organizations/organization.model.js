@@ -69,7 +69,15 @@ const organizationSchema = new Schema({
     /* ================= SETTINGS ================= */
     settings: {
         timezone: { type: String, default: "UTC" },
-        currency: { type: String, default: "USD" },
+        // Org-wide currency — every deal/dashboard/forecast number for this
+        // org is entered and displayed in this currency. One currency per
+        // organization (not per-deal), set once at signup. INR default
+        // since Situs targets Indian SMB/mid-market first.
+        currency: {
+            type: String,
+            enum: ["INR", "USD", "EUR", "GBP"],
+            default: "INR",
+        },
         aiSensitivity: {
             type: String,
             enum: ["Conservative", "Balanced", "Aggressive"],

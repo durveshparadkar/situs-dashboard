@@ -1,5 +1,6 @@
 // signals.engine.ts
 import { SIGNAL_CATEGORY_MAP, } from "./brain.types.js";
+import { formatCurrency } from "../../shared/utils/currency.js";
 /* =====================================================
    ENGINE VERSION
 ===================================================== */
@@ -94,12 +95,16 @@ function buildSignal(type, severity, message, opts = {}) {
         signal.metadata = opts.metadata;
     return signal;
 }
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only so _internal.formatINR (used by existing
+ * tests, if any) doesn't break — always formats as INR regardless of org.
+ */
 function formatINR(value) {
-    if (value >= 10_000_000)
-        return `₹${(value / 10_000_000).toFixed(1)}Cr`;
-    if (value >= 100_000)
-        return `₹${(value / 100_000).toFixed(1)}L`;
-    return `₹${value.toLocaleString("en-IN")}`;
+    return formatCurrency(value, "INR");
+}
+function getContextCurrency(context) {
+    return context.currency ?? "INR";
 }
 /* =====================================================
    PRIVATE — SIGNAL DETECTORS
@@ -131,10 +136,11 @@ const detectHighValueNoReply = (ctx) => {
     if (days < cfg.minInactivityDays)
         return null;
     const isCritical = value >= SIGNALS_CONFIG.value.veryHigh;
+    const currency = getContextCurrency(ctx);
     return buildSignal("HIGH_VALUE_NO_REPLY", isCritical ? "critical" : "high", "High-value deal with no recent engagement", {
         confidence: SIGNALS_CONFIG.confidence.highValueNoReply,
         reasoning: [
-            `Deal value: ${formatINR(value)}`,
+            `Deal value: ${formatCurrency(value, currency)}`,
             `Inactive for ${days} days`,
         ],
         isPositive: false,
@@ -202,10 +208,11 @@ const detectHighRisk = (ctx) => {
         return null;
     if (days < cfg.minInactivityDays)
         return null;
+    const currency = getContextCurrency(ctx);
     return buildSignal("HIGH_RISK", "critical", "High-value deal at risk due to inactivity", {
         confidence: SIGNALS_CONFIG.confidence.highRisk,
         reasoning: [
-            `Deal value: ${formatINR(value)}`,
+            `Deal value: ${formatCurrency(value, currency)}`,
             `Inactive for ${days} days — momentum lost`,
         ],
         isPositive: false,
@@ -216,9 +223,11 @@ const detectEnterpriseDeal = (ctx) => {
     const value = ctx.dealValue ?? 0;
     if (value < SIGNALS_CONFIG.value.enterprise)
         return null;
-    return buildSignal("ENTERPRISE_DEAL", "high", `Enterprise-tier deal: ${formatINR(value)}`, {
+    const currency = getContextCurrency(ctx);
+    const formatted = formatCurrency(value, currency);
+    return buildSignal("ENTERPRISE_DEAL", "high", `Enterprise-tier deal: ${formatted}`, {
         confidence: SIGNALS_CONFIG.confidence.enterpriseDeal,
-        reasoning: [`Deal value: ${formatINR(value)} qualifies as enterprise`],
+        reasoning: [`Deal value: ${formatted} qualifies as enterprise`],
         isPositive: true,
         metadata: { dealValue: value },
     });
