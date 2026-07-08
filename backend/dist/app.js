@@ -33,6 +33,9 @@ import analyticsRoutes from "./modules/analytics/analytics.routes.js";
 import intelligenceRoutes from "./modules/intelligence/intelligence.routes.js";
 import forecastRoutes from "./modules/forecast/forecast.routes.js";
 import organizationRoutes from "./modules/organizations/organization.routes.js";
+import gmailRoutes from "./modules/integrations/gmail.routes.js";
+import "./modules/integrations/gmail-sync.worker.js";
+import { scheduleGmailSync } from "./modules/integrations/gmail-sync.queue.js";
 /* ===============================
    MIDDLEWARES
 =============================== */
@@ -144,6 +147,7 @@ app.use("/api/intelligence", intelligenceRoutes);
 app.use("/api/forecast", forecastRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/public", publicDemoRoutes);
+app.use("/api/integrations/gmail", gmailRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
@@ -180,5 +184,6 @@ const shutdown = (signal) => {
 };
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+void scheduleGmailSync();
 export default app;
 //# sourceMappingURL=app.js.map

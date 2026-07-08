@@ -96,6 +96,9 @@ class AuthService {
                         name: orgName,
                         slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
                         plan: "SMALL_BUSINESS",
+                        settings: {
+                            currency: input.currency || "INR",
+                        },
                     },
                 ], { session });
                 if (!org) {
@@ -180,7 +183,7 @@ class AuthService {
             });
         }
         let org = await Organization.findById(user.organizationId)
-            .select("_id name slug plan createdAt updatedAt");
+            .select("_id name slug plan createdAt updatedAt settings");
         if (!org) {
             org = await Organization.create({
                 name: "Personal Workspace",
@@ -278,12 +281,15 @@ class AuthService {
                     roleId: adminRole._id,
                 });
             }
-            let org = await Organization.findById(existingUser.organizationId).select("_id name slug plan createdAt updatedAt");
+            let org = await Organization.findById(existingUser.organizationId).select("_id name slug plan createdAt updatedAt settings");
             if (!org) {
                 org = await Organization.create({
                     name: "Personal Workspace",
                     slug: `workspace-${existingUser._id.toString()}`,
                     plan: "PRO",
+                    settings: {
+                        currency: profile.currency || "INR",
+                    },
                 });
                 await User.findByIdAndUpdate(existingUser._id, {
                     organizationId: org._id,
@@ -332,6 +338,9 @@ class AuthService {
                         name: orgName,
                         slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
                         plan: "SMALL_BUSINESS",
+                        settings: {
+                            currency: profile.currency || "INR",
+                        },
                     },
                 ], { session });
                 if (!org) {
@@ -375,7 +384,10 @@ class AuthService {
             session.endSession();
         }
     }
-    /* ================= PROFILE ================= */
+    /* ================= PROFILE =================
+       Used by GET /api/auth/me. Now also fetches the organization and
+       attaches its currency so the frontend can call this endpoint to
+       populate useOrgCurrency() instead of hardcoding "INR". */
     async getProfile(userId) {
         const user = await User.findById(userId)
             .select("-password")
@@ -383,7 +395,20 @@ class AuthService {
         if (!user) {
             throw ApiError.notFound("User not found");
         }
-        return user;
+        const org = await Organization.findById(user.organizationId).select("_id name slug plan settings");
+        const userObj = user.toObject();
+        return {
+            ...userObj,
+            organization: org
+                ? {
+                    _id: org._id,
+                    name: org.name,
+                    slug: org.slug,
+                    plan: org.plan,
+                    currency: org.settings?.currency ?? "INR",
+                }
+                : null,
+        };
     }
     /* ================= FORGOT PASSWORD ================= */
     async forgotPassword(email) {

@@ -19,6 +19,7 @@
 // And composes them into a ranked action list.
 //
 // Pure function. No I/O. Deterministic given same inputs.
+import { formatCurrency } from "../../shared/utils/currency.js";
 // ============================================================
 // VERSIONING
 // ============================================================
@@ -59,7 +60,7 @@ const REVENUE_DECISION_CONFIG = {
     /** Quick win — low value but healthy + late stage */
     quickWin: {
         healthScoreMin: 65,
-        valueMax: 200_000, // ₹2 Lakh and below
+        valueMax: 200_000, // ₹2 Lakh and below (or equivalent)
         basePriority: 35,
     },
     /** Coaching signal — many low-health deals from same rep */
@@ -132,14 +133,13 @@ function isOpenDeal(s) {
         s.status !== "lost" &&
         s.status !== "abandoned");
 }
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
+ */
 function formatINR(rupees) {
-    if (rupees >= 10_000_000) {
-        return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-    }
-    if (rupees >= 100_000) {
-        return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-    }
-    return "\u20B9" + rupees.toLocaleString("en-IN");
+    return formatCurrency(rupees, "INR");
 }
 /**
  * Compute value-weighted priority boost. Caps at maxBoost so a single
@@ -324,7 +324,7 @@ function detectHotDealOpportunity(s) {
     };
     return action;
 }
-function detectQuickWin(s) {
+function detectQuickWin(s, currency) {
     const value = s.value ?? 0;
     if (value === 0)
         return null;
@@ -344,7 +344,7 @@ function detectQuickWin(s) {
         title: "Quick win: " + s.name,
         action: "Close this deal fast — small but healthy, low effort to convert",
         reason: "Healthy late-stage deal under " +
-            formatINR(REVENUE_DECISION_CONFIG.quickWin.valueMax),
+            formatCurrency(REVENUE_DECISION_CONFIG.quickWin.valueMax, currency),
         priorityScore: Math.round(score),
         revenueImpact: value,
         ...(s.dealId !== undefined && { dealId: s.dealId }),
@@ -428,6 +428,10 @@ function detectCoachingSignals(deals) {
 /**
  * Generate prioritized revenue actions from pre-scored deals.
  *
+ * @param deals    Deals to analyze (typically an org's open pipeline)
+ * @param currency Org's currency for formatted messages. Defaults to
+ *                 INR if not passed — safe for existing callers.
+ *
  * Returns:
  *   - topActions: capped, ranked actions (best for dashboards)
  *   - allActions: full uncapped list (for "show all" views)
@@ -435,7 +439,7 @@ function detectCoachingSignals(deals) {
  *   - coaching signals for managers
  *   - summary message
  */
-export function generateRevenueActions(deals) {
+export function generateRevenueActions(deals, currency = "INR") {
     const computedAt = new Date();
     const allActions = [];
     // Filter to open deals
@@ -461,7 +465,7 @@ export function generateRevenueActions(deals) {
         const hotDeal = detectHotDealOpportunity(d);
         if (hotDeal)
             dealActions.push(hotDeal);
-        const quickWin = detectQuickWin(d);
+        const quickWin = detectQuickWin(d, currency);
         if (quickWin)
             dealActions.push(quickWin);
         // De-dup: critical-risk + late-stage-at-risk on same deal = redundant.
@@ -537,7 +541,7 @@ export function generateRevenueActions(deals) {
     // -----------------------------------------------------------
     // SUMMARY
     // -----------------------------------------------------------
-    const summary = buildSummary(topActions, criticalRevenueAtRisk, opportunityRevenue);
+    const summary = buildSummary(topActions, criticalRevenueAtRisk, opportunityRevenue, currency);
     return {
         topActions,
         allActions,
@@ -555,7 +559,7 @@ export function generateRevenueActions(deals) {
 // ============================================================
 // SUMMARY BUILDER
 // ============================================================
-function buildSummary(actions, criticalRevenue, opportunityRevenue) {
+function buildSummary(actions, criticalRevenue, opportunityRevenue, currency) {
     if (actions.length === 0) {
         return "All clear — no critical actions needed today";
     }
@@ -564,11 +568,11 @@ function buildSummary(actions, criticalRevenue, opportunityRevenue) {
     const parts = [];
     if (criticalCount > 0) {
         parts.push(criticalCount + " critical action" + (criticalCount === 1 ? "" : "s") +
-            " (" + formatINR(criticalRevenue) + " at risk)");
+            " (" + formatCurrency(criticalRevenue, currency) + " at risk)");
     }
     if (oppCount > 0) {
         parts.push(oppCount + " opportunity" + (oppCount === 1 ? "" : " opportunities") +
-            " (" + formatINR(opportunityRevenue) + " potential)");
+            " (" + formatCurrency(opportunityRevenue, currency) + " potential)");
     }
     if (parts.length === 0) {
         return actions.length + " action" + (actions.length === 1 ? "" : "s") + " for today";

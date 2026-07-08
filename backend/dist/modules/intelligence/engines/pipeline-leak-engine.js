@@ -20,6 +20,7 @@
 //   - Coaching signals: which reps have which leak patterns
 //
 // Pure heuristic, deterministic, no I/O.
+import { formatCurrency } from "../../shared/utils/currency.js";
 // ============================================================
 // VERSIONING
 // ============================================================
@@ -30,14 +31,14 @@ export const PIPELINE_LEAK_ENGINE_VERSION = "1.0.0";
 const PIPELINE_LEAK_CONFIG = {
     /** Stage clog — too much value parked in one stage */
     stageClog: {
-        minValue: 2_000_000, // ₹20 Lakh+
+        minValue: 2_000_000, // ₹20 Lakh+ (or equivalent in org's currency)
         minDealCount: 2,
         minAvgInactivity: 10,
         severity: "high",
     },
     /** Severe clog — significantly above clog threshold */
     severeClog: {
-        minValue: 10_000_000, // ₹1 Cr+
+        minValue: 10_000_000, // ₹1 Cr+ (or equivalent)
         minDealCount: 3,
         minAvgInactivity: 14,
         severity: "critical",
@@ -45,7 +46,7 @@ const PIPELINE_LEAK_CONFIG = {
     /** Stage starvation — top-of-funnel running dry */
     starvation: {
         earlyStages: ["DISCOVERY", "QUALIFICATION"],
-        minPipelineForCheck: 1_000_000, // only check when pipeline > ₹10 Lakh
+        minPipelineForCheck: 1_000_000, // only check when pipeline > ₹10 Lakh (or equivalent)
         earlyShareMin: 0.15, // early stages should hold 15%+ of pipeline
         severity: "high",
     },
@@ -120,14 +121,13 @@ function isOpenDeal(s) {
         s.status !== "lost" &&
         s.status !== "abandoned");
 }
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
+ */
 function formatINR(rupees) {
-    if (rupees >= 10_000_000) {
-        return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-    }
-    if (rupees >= 100_000) {
-        return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-    }
-    return "\u20B9" + rupees.toLocaleString("en-IN");
+    return formatCurrency(rupees, "INR");
 }
 function aggregateByStage(deals) {
     const map = new Map();
@@ -177,8 +177,10 @@ function buildStageMetrics(aggregates, totalPipelineValue) {
 }
 // ============================================================
 // LEAK DETECTORS
+// currency is the org's currency for the whole run, passed down
+// from detectPipelineLeaks's top-level parameter.
 // ============================================================
-function detectStageClog(agg) {
+function detectStageClog(agg, currency) {
     const avgInactivity = agg.totalInactivity / agg.dealCount;
     // Check severe first
     if (agg.totalValue >= PIPELINE_LEAK_CONFIG.severeClog.minValue &&
@@ -191,7 +193,7 @@ function detectStageClog(agg) {
             totalValue: agg.totalValue,
             dealCount: agg.dealCount,
             avgInactivityDays: Math.round(avgInactivity * 10) / 10,
-            message: formatINR(agg.totalValue) + " across " + agg.dealCount +
+            message: formatCurrency(agg.totalValue, currency) + " across " + agg.dealCount +
                 " deals severely stuck in " + humanizeStage(agg.stage) +
                 " (" + Math.round(avgInactivity) + " days avg inactivity)",
             recommendedAction: "Audit each deal in " + humanizeStage(agg.stage) +
@@ -210,7 +212,7 @@ function detectStageClog(agg) {
             totalValue: agg.totalValue,
             dealCount: agg.dealCount,
             avgInactivityDays: Math.round(avgInactivity * 10) / 10,
-            message: formatINR(agg.totalValue) + " stuck in " + humanizeStage(agg.stage) +
+            message: formatCurrency(agg.totalValue, currency) + " stuck in " + humanizeStage(agg.stage) +
                 " across " + agg.dealCount + " deals (avg " +
                 Math.round(avgInactivity) + " days inactive)",
             recommendedAction: "Run a stage-specific cleanup — push deals forward, close out stalled ones",
@@ -275,7 +277,7 @@ function detectLateStageConcentration(aggregates, totalPipelineValue) {
     }
     return null;
 }
-function detectOldDealCluster(deals) {
+function detectOldDealCluster(deals, currency) {
     const oldDeals = deals.filter((d) => (d.ageDays ?? 0) >= PIPELINE_LEAK_CONFIG.oldDeals.ageDaysThreshold);
     if (oldDeals.length < PIPELINE_LEAK_CONFIG.oldDeals.minCount)
         return null;
@@ -289,7 +291,7 @@ function detectOldDealCluster(deals) {
         severity: "medium",
         totalValue,
         dealCount: oldDeals.length,
-        message: oldDeals.length + " deals (" + formatINR(totalValue) +
+        message: oldDeals.length + " deals (" + formatCurrency(totalValue, currency) +
             ") older than " + PIPELINE_LEAK_CONFIG.oldDeals.ageDaysThreshold +
             " days — avg age " + Math.round(avgAge) + " days",
         recommendedAction: "Decision time on old deals — either escalate, reprice, or close as lost. " +
@@ -297,7 +299,7 @@ function detectOldDealCluster(deals) {
         ...(dealIds.length > 0 && { dealIds }),
     };
 }
-function detectWhaleConcentration(deals, totalPipelineValue) {
+function detectWhaleConcentration(deals, totalPipelineValue, currency) {
     if (totalPipelineValue === 0 || deals.length < 3)
         return null;
     // Find single largest deal
@@ -316,7 +318,7 @@ function detectWhaleConcentration(deals, totalPipelineValue) {
         severity: "high",
         totalValue: largest.value,
         dealCount: 1,
-        message: "Single deal '" + largest.name + "' (" + formatINR(largest.value) +
+        message: "Single deal '" + largest.name + "' (" + formatCurrency(largest.value, currency) +
             ") is " + Math.round(share * 100) + "% of your pipeline",
         recommendedAction: "Pipeline is fragile — protect this deal AND build depth so one slip doesn't sink the quarter",
         ...(largest.dealId !== undefined && { dealIds: [largest.dealId] }),
@@ -349,13 +351,17 @@ function computeHealthScore(leaks, totalPipelineValue) {
 /**
  * Analyze the full pipeline for structural leaks.
  *
+ * @param deals    Deals to analyze (typically an org's open pipeline)
+ * @param currency Org's currency for formatted messages. Defaults to
+ *                 INR if not passed — safe for existing callers.
+ *
  * Returns:
  *   - leaks: detected leak patterns sorted by severity
  *   - stageMetrics: per-stage breakdown for dashboard rendering
  *   - healthScore: 0-100 overall pipeline health
  *   - summary: human-readable hero message
  */
-export function detectPipelineLeaks(deals) {
+export function detectPipelineLeaks(deals, currency = "INR") {
     const computedAt = new Date();
     // Filter to open deals only
     const openDeals = deals.filter(isOpenDeal);
@@ -367,7 +373,7 @@ export function detectPipelineLeaks(deals) {
     // PER-STAGE LEAK DETECTION
     // -----------------------------------------------------------
     for (const agg of aggregates.values()) {
-        const clog = detectStageClog(agg);
+        const clog = detectStageClog(agg, currency);
         if (clog)
             leaks.push(clog);
     }
@@ -380,10 +386,10 @@ export function detectPipelineLeaks(deals) {
     const lateConc = detectLateStageConcentration(aggregates, totalPipelineValue);
     if (lateConc)
         leaks.push(lateConc);
-    const oldCluster = detectOldDealCluster(openDeals);
+    const oldCluster = detectOldDealCluster(openDeals, currency);
     if (oldCluster)
         leaks.push(oldCluster);
-    const whale = detectWhaleConcentration(openDeals, totalPipelineValue);
+    const whale = detectWhaleConcentration(openDeals, totalPipelineValue, currency);
     if (whale)
         leaks.push(whale);
     // -----------------------------------------------------------
@@ -439,7 +445,7 @@ export function detectPipelineLeaks(deals) {
     // HEALTH SCORE + SUMMARY
     // -----------------------------------------------------------
     const healthScore = computeHealthScore(capped, totalPipelineValue);
-    const summary = buildSummary(capped, totalPipelineValue, openDeals.length, healthScore);
+    const summary = buildSummary(capped, totalPipelineValue, openDeals.length, healthScore, currency);
     const result = {
         leaks: capped,
         stageMetrics,
@@ -460,13 +466,13 @@ export function detectPipelineLeaks(deals) {
 // ============================================================
 // SUMMARY BUILDER
 // ============================================================
-function buildSummary(leaks, totalPipelineValue, totalOpenDeals, healthScore) {
+function buildSummary(leaks, totalPipelineValue, totalOpenDeals, healthScore, currency) {
     if (totalOpenDeals === 0) {
         return "No open deals in pipeline — focus on prospecting";
     }
     if (leaks.length === 0) {
         return "Pipeline is healthy — " + totalOpenDeals + " open deals worth " +
-            formatINR(totalPipelineValue) + ", health score " + healthScore + "/100";
+            formatCurrency(totalPipelineValue, currency) + ", health score " + healthScore + "/100";
     }
     const criticalCount = leaks.filter((l) => l.severity === "critical").length;
     const highCount = leaks.filter((l) => l.severity === "high").length;

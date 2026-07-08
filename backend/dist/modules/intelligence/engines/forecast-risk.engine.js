@@ -10,11 +10,12 @@
 // Used for:
 //   - Sales leader's "Forecast Confidence" dashboard
 //   - Weekly forecast review prep ("show me everything that might miss")
-//   - Quarter-end alerts ("₹X Cr exposed, mostly in 3 deals")
+//   - Quarter-end alerts ("X at risk, mostly in 3 deals")
 //   - Manager 1:1 talking points
 //
 // Pure heuristic, deterministic. Same input always produces same output.
 // No I/O, no DB, no LLM.
+import { formatCurrency } from "../../shared/utils/currency.js";
 // ============================================================
 // VERSIONING
 // ============================================================
@@ -50,7 +51,7 @@ const FORECAST_CONFIG = {
     },
     /** Mega-deal threshold — single deal so large its slip wrecks the forecast */
     megaDeal: {
-        valueMin: 5_000_000, // ₹50 Lakh+
+        valueMin: 5_000_000, // ₹50 Lakh+ (or equivalent in org's currency)
     },
     /**
      * Concentration risk — when N% of at-risk revenue sits in K% of deals.
@@ -123,19 +124,12 @@ function daysBetween(future, now) {
     return Math.ceil((future.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 /**
- * INR formatter matching the other engines.
- *   500_000      → "₹5 Lakh"
- *   12_000_000   → "₹1.2 Cr"
- *   50_000       → "₹50,000"
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
  */
 function formatINR(rupees) {
-    if (rupees >= 10_000_000) {
-        return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-    }
-    if (rupees >= 100_000) {
-        return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-    }
-    return "\u20B9" + rupees.toLocaleString("en-IN");
+    return formatCurrency(rupees, "INR");
 }
 /**
  * Weighted impact — uses pre-computed weightedValue if available,
@@ -158,8 +152,10 @@ function isOpenDeal(s) {
 // ============================================================
 // FACTOR DETECTORS
 // Each returns a factor or null. Pure functions.
+// currency is the org's currency for the whole forecast run —
+// passed down from detectForecastRisk's top-level parameter.
 // ============================================================
-function detectLateStageInactive(s) {
+function detectLateStageInactive(s, currency) {
     const stage = normalizeStageName(s.stage);
     if (!LATE_STAGES.includes(stage))
         return null;
@@ -173,7 +169,7 @@ function detectLateStageInactive(s) {
         severity: "high",
         revenueImpact: s.value,
         weightedImpact: computeWeightedImpact(s),
-        message: s.name + " (" + formatINR(s.value) + ") in " +
+        message: s.name + " (" + formatCurrency(s.value, currency) + ") in " +
             humanizeStage(stage) + " — quiet " + s.lastActivityDays + " days",
         recommendedAction: "Re-engage today — late-stage silence usually means a deal lost",
     };
@@ -219,7 +215,7 @@ function detectSlippingSoon(s, now) {
         recommendedAction: "Push to close this week or set realistic expectation with leadership",
     };
 }
-function detectStaleCommit(s) {
+function detectStaleCommit(s, currency) {
     if (s.forecastCategory !== "commit")
         return null;
     if (s.lastActivityDays < FORECAST_CONFIG.staleCommit.inactivityDays)
@@ -231,7 +227,7 @@ function detectStaleCommit(s) {
         severity: "critical",
         revenueImpact: s.value,
         weightedImpact: computeWeightedImpact(s),
-        message: "COMMIT deal " + s.name + " (" + formatINR(s.value) +
+        message: "COMMIT deal " + s.name + " (" + formatCurrency(s.value, currency) +
             ") quiet for " + s.lastActivityDays + " days",
         recommendedAction: "Commits are promises — verify the deal is still on track or downgrade to best_case",
     };
@@ -257,7 +253,7 @@ function detectBestCaseErosion(s) {
         recommendedAction: "Probability has decayed — move to pipeline or close out",
     };
 }
-function detectMegaDealAtRisk(s, existingRisk) {
+function detectMegaDealAtRisk(s, existingRisk, currency) {
     if (s.value < FORECAST_CONFIG.megaDeal.valueMin)
         return null;
     if (!existingRisk)
@@ -269,7 +265,7 @@ function detectMegaDealAtRisk(s, existingRisk) {
         severity: "critical",
         revenueImpact: s.value,
         weightedImpact: computeWeightedImpact(s),
-        message: "Mega deal " + s.name + " (" + formatINR(s.value) +
+        message: "Mega deal " + s.name + " (" + formatCurrency(s.value, currency) +
             ") has risk signals — quarter impact if it slips",
         recommendedAction: "Escalate to manager — one mega-deal slip can miss the quarter",
     };
@@ -283,11 +279,15 @@ function humanizeStage(stage) {
 /**
  * Compute forecast-risk analysis across a set of deals.
  *
+ * @param deals    Deals to analyze (typically an org's open pipeline)
+ * @param currency Org's currency for formatted messages. Defaults to
+ *                 INR if not passed — safe for existing callers.
+ *
  * Returns a structured result with summary, factors, breakdowns by
  * severity/type, and top deals to watch. Always returns a result —
  * even with zero factors, the summary describes a clean forecast.
  */
-export function detectForecastRisk(deals) {
+export function detectForecastRisk(deals, currency = "INR") {
     const computedAt = new Date();
     const factors = [];
     // Filter open deals only for risk analysis
@@ -299,7 +299,7 @@ export function detectForecastRisk(deals) {
     // -----------------------------------------------------------
     for (const s of openDeals) {
         const dealFactors = [];
-        const lateStage = detectLateStageInactive(s);
+        const lateStage = detectLateStageInactive(s, currency);
         if (lateStage)
             dealFactors.push(lateStage);
         const slipped = detectSlipped(s, computedAt);
@@ -308,7 +308,7 @@ export function detectForecastRisk(deals) {
         const slippingSoon = detectSlippingSoon(s, computedAt);
         if (slippingSoon)
             dealFactors.push(slippingSoon);
-        const staleCommit = detectStaleCommit(s);
+        const staleCommit = detectStaleCommit(s, currency);
         if (staleCommit)
             dealFactors.push(staleCommit);
         const bestCaseDecay = detectBestCaseErosion(s);
@@ -316,7 +316,7 @@ export function detectForecastRisk(deals) {
             dealFactors.push(bestCaseDecay);
         // Mega deal flag — only if this deal already has at least one risk
         if (dealFactors.length > 0) {
-            const megaFlag = detectMegaDealAtRisk(s, true);
+            const megaFlag = detectMegaDealAtRisk(s, true, currency);
             if (megaFlag)
                 dealFactors.push(megaFlag);
         }
@@ -408,7 +408,7 @@ export function detectForecastRisk(deals) {
         totalPipelineValue,
         percentAtRisk: Math.round(percentAtRisk * 10) / 10,
         confidence,
-        message: buildSummaryMessage(totalRevenueAtRisk, riskyDealsCount, percentAtRisk, confidence),
+        message: buildSummaryMessage(totalRevenueAtRisk, riskyDealsCount, percentAtRisk, confidence, currency),
     };
     // -----------------------------------------------------------
     // BREAKDOWNS
@@ -474,7 +474,7 @@ export function detectForecastRisk(deals) {
 // ============================================================
 // MESSAGE BUILDERS
 // ============================================================
-function buildSummaryMessage(totalAtRisk, riskyCount, percentAtRisk, confidence) {
+function buildSummaryMessage(totalAtRisk, riskyCount, percentAtRisk, confidence, currency) {
     if (riskyCount === 0 || totalAtRisk === 0) {
         return "Forecast is healthy — no significant risk signals detected";
     }
@@ -490,7 +490,7 @@ function buildSummaryMessage(totalAtRisk, riskyCount, percentAtRisk, confidence)
     else {
         confidenceText = " — overall confidence remains high";
     }
-    return formatINR(totalAtRisk) + " at risk across " + riskyCount +
+    return formatCurrency(totalAtRisk, currency) + " at risk across " + riskyCount +
         " " + dealsLabel + " (" + pctStr + "% of pipeline)" +
         confidenceText;
 }

@@ -23,6 +23,7 @@
 //   - Alert subsystem → persists notable alerts to Alert collection
 //   - Dashboard → renders "Deals Requiring Attention" widget
 //   - Notification service → optionally emails high-priority alerts
+import { formatCurrency } from "../../shared/utils/currency.js";
 // ============================================================
 // VERSIONING
 // ============================================================
@@ -49,9 +50,9 @@ const ATTENTION_CONFIG = {
     },
     /** High-value threshold and inactivity tolerance */
     highValue: {
-        valueMin: 150_000, // ₹1.5 Lakh+
+        valueMin: 150_000, // ₹1.5 Lakh+ (or equivalent)
         inactivityDays: 5,
-        enterpriseValueMin: 1_000_000, // ₹10 Lakh+ — higher urgency
+        enterpriseValueMin: 1_000_000, // ₹10 Lakh+ (or equivalent) — higher urgency
         enterpriseInactivityDays: 3,
     },
     /** Hot lead going cold — high probability deal getting quiet */
@@ -137,6 +138,7 @@ export function detectDealAttention(signals) {
     const stage = normalizeStageName(signals.stage);
     const a = signals.lastActivityDays;
     const stageDays = signals.daysInCurrentStage ?? 0;
+    const currency = signals.currency ?? "INR";
     // -----------------------------------------------------------
     // ENTERPRISE AT RISK — highest priority
     // Big-ticket deals going quiet are critical for forecast
@@ -146,7 +148,7 @@ export function detectDealAttention(signals) {
         alerts.push(buildAlert({
             signals,
             type: ATTENTION_ALERT_TYPES.ENTERPRISE_AT_RISK,
-            message: signals.name + " (" + formatINR(signals.value) +
+            message: signals.name + " (" + formatCurrency(signals.value, currency) +
                 ") quiet for " + a + " days",
             recommendedAction: "Call decision-maker today — protect this deal",
             priority: "critical",
@@ -163,7 +165,7 @@ export function detectDealAttention(signals) {
             signals,
             type: ATTENTION_ALERT_TYPES.HIGH_VALUE_RISK,
             message: signals.name + " is high-value (" +
-                formatINR(signals.value) + ") and needs attention",
+                formatCurrency(signals.value, currency) + ") and needs attention",
             recommendedAction: "Send a follow-up email or schedule a check-in call",
             priority: "high",
             impactScore: 80,
@@ -328,14 +330,13 @@ function normalizeStageName(stage) {
 function humanizeStage(stage) {
     return stage.toLowerCase().replace(/_/g, " ");
 }
+/**
+ * @deprecated Use formatCurrency() from shared/utils/currency.ts instead.
+ * Kept as a thin wrapper only in case anything external still imports
+ * this — always formats as INR regardless of org currency.
+ */
 function formatINR(rupees) {
-    if (rupees >= 10_000_000) {
-        return "\u20B9" + (rupees / 10_000_000).toFixed(1) + " Cr";
-    }
-    if (rupees >= 100_000) {
-        return "\u20B9" + (rupees / 100_000).toFixed(1) + " Lakh";
-    }
-    return "\u20B9" + rupees.toLocaleString("en-IN");
+    return formatCurrency(rupees, "INR");
 }
 // ============================================================
 // BATCH PROCESSING
@@ -393,6 +394,8 @@ export function extractAttentionSignals(input) {
     };
     if (input._id !== undefined)
         signals.dealId = input._id;
+    if (input.currency !== undefined)
+        signals.currency = input.currency;
     if (input.daysInCurrentStage !== undefined)
         signals.daysInCurrentStage = input.daysInCurrentStage;
     if (input.probability !== undefined)

@@ -43,6 +43,8 @@ import intelligenceRoutes from "./modules/intelligence/intelligence.routes.js";
 import forecastRoutes from "./modules/forecast/forecast.routes.js";
 import organizationRoutes from "./modules/organizations/organization.routes.js";
 import gmailRoutes from "./modules/integrations/gmail.routes.js";
+import "./modules/integrations/gmail-sync.worker.js";
+import { scheduleGmailSync } from "./modules/integrations/gmail-sync.queue.js";
 
 /* ===============================
    MIDDLEWARES
@@ -221,6 +223,8 @@ const shutdown = (signal: string) => {
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+void scheduleGmailSync();
 
 export default app;
 
