@@ -12,8 +12,12 @@ import {
   Check,
   AlertCircle,
   Camera,
+  Plug,
+  Mail,
+  RefreshCw,
+  Unlink,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api";
 import { OrgCurrency, invalidateOrgCurrencyCache } from "@/lib/currency";
@@ -41,8 +45,6 @@ type SavableSnapshot = {
   currency: OrgCurrency;
 };
 
-/* Accept _id OR id — backend responses aren't always consistent about which
-   one gets serialized, so we check both instead of assuming. */
 type UserMeResponse = {
   success: boolean;
   data?: {
@@ -64,6 +66,16 @@ type OrgSettingsResponse = {
       alerts?: Partial<AlertSettings>;
       currency?: string;
     };
+  };
+};
+
+type GmailStatusResponse = {
+  success: boolean;
+  data?: {
+    connected: boolean;
+    email: string | null;
+    lastSyncedAt: string | null;
+    connectedAt: string | null;
   };
 };
 
@@ -91,6 +103,7 @@ const TABS = [
   { id: "ai", label: "Intelligence", icon: Brain },
   { id: "alerts", label: "Alerts", icon: Bell },
   { id: "pipeline", label: "Pipeline", icon: Workflow },
+  { id: "integrations", label: "Integrations", icon: Plug },
   { id: "system", label: "System", icon: ShieldCheck },
 ] as const;
 
@@ -113,13 +126,24 @@ function initialsFromName(name: string): string {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
+function timeAgo(iso: string | null): string {
+  if (!iso) return "Never";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /* ================= SHARED UI ================= */
 
 function FieldRow({
   label, hint, children, last = false,
 }: { label: string; hint?: string; children: ReactNode; last?: boolean }) {
   return (
-    <div className={"grid sm:grid-cols-[200px_1fr] gap-2 sm:gap-8 py-5 " + (last ? "" : "border-b border-zinc-100")}>
+    <div className={`grid sm:grid-cols-[200px_1fr] gap-2 sm:gap-8 py-5 ${last ? "" : "border-b border-zinc-100"}`}>
       <div>
         <p className="text-[14px] text-zinc-900">{label}</p>
         {hint && <p className="text-[12.5px] text-zinc-400 mt-0.5">{hint}</p>}
@@ -186,6 +210,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [profile, setProfile] = useState<ProfileState>({ userId: "", fullName: "", email: "", company: "", role: "" });
   const [plan, setPlan] = useState("Small Business");
@@ -207,6 +232,14 @@ export default function SettingsPage() {
   const [savedSnapshot, setSavedSnapshot] = useState<SavableSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<typeof TABS[number]["id"]>("profile");
 
+  /* ── Gmail integration state ── */
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+  const [gmailLastSynced, setGmailLastSynced] = useState<string | null>(null);
+  const [gmailLoading, setGmailLoading] = useState(true);
+  const [gmailSyncing, setGmailSyncing] = useState(false);
+  const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
+
   const loadAll = async () => {
     try {
       setLoadError(false);
@@ -218,7 +251,6 @@ export default function SettingsPage() {
       const u = userRes?.data;
       const o = orgRes?.data;
 
-      /* Check both _id and id — whichever the backend actually sends */
       const resolvedUserId = u?._id ?? u?.id ?? "";
       setMissingUserId(!resolvedUserId);
 
@@ -260,10 +292,54 @@ export default function SettingsPage() {
     }
   };
 
+  const loadGmailStatus = async () => {
+    try {
+      setGmailLoading(true);
+      const res = await apiFetch<GmailStatusResponse>("/api/integrations/gmail/status");
+      setGmailConnected(res?.data?.connected ?? false);
+      setGmailEmail(res?.data?.email ?? null);
+      setGmailLastSynced(res?.data?.lastSyncedAt ?? null);
+    } catch (err) {
+      console.error("Failed to load Gmail status", err);
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAll();
+    loadGmailStatus();
      
   }, []);
+
+  /* Handle redirect back from the Gmail OAuth callback */
+  useEffect(() => {
+    const gmailParam = searchParams.get("gmail");
+    if (!gmailParam) return;
+
+    if (gmailParam === "connected") {
+      toast.success("Gmail connected — syncing your recent emails");
+      setActiveTab("integrations");
+      loadGmailStatus();
+      // Trigger an immediate sync rather than waiting for the next
+      // scheduled batch run
+      apiFetch("/api/integrations/gmail/sync-now", { method: "POST" })
+        .then(() => loadGmailStatus())
+        .catch(() => {
+          /* best-effort — scheduled sync will pick it up regardless */
+        });
+    } else if (gmailParam === "declined") {
+      toast("Gmail connection cancelled");
+      setActiveTab("integrations");
+    } else if (gmailParam === "error") {
+      toast.error("Couldn't connect Gmail — please try again");
+      setActiveTab("integrations");
+    }
+
+    // Clean the query param out of the URL so a refresh doesn't re-fire the toast
+    router.replace("/dashboard/settings");
+     
+  }, [router, searchParams]);
 
   const isDirty = useMemo(() => {
     if (!savedSnapshot) return false;
@@ -283,9 +359,6 @@ export default function SettingsPage() {
 
     const nameChanged = profile.fullName.trim() !== savedSnapshot?.fullName;
 
-    /* Surface the failure instead of silently skipping it — this is the
-       exact bug that made saves look successful when the name update
-       never actually fired. */
     if (nameChanged && !profile.userId) {
       toast.error("Couldn't identify your account — refresh the page and try again.");
       return;
@@ -320,9 +393,6 @@ export default function SettingsPage() {
 
       await Promise.all(requests);
 
-      /* Currency changed — clear the cached value so useOrgCurrency()
-         re-fetches instead of showing the stale currency everywhere
-         else in the app until next full page reload. */
       if (currency !== savedSnapshot?.currency) {
         invalidateOrgCurrencyCache();
       }
@@ -350,6 +420,46 @@ export default function SettingsPage() {
     setAI({ sensitivity: savedSnapshot.sensitivity });
     setAlerts(savedSnapshot.alerts);
     setCurrency(savedSnapshot.currency);
+  };
+
+  /* ── Gmail integration handlers ── */
+
+  const handleConnectGmail = () => {
+    // Full navigation, not fetch — this needs to hit Google's consent
+    // screen, which can't happen via XHR
+    window.location.href = "https://api.situsrevenue.com/api/integrations/gmail/connect";
+  };
+
+  const handleSyncNow = async () => {
+    try {
+      setGmailSyncing(true);
+      const res = await apiFetch<{ success: boolean; message?: string }>(
+        "/api/integrations/gmail/sync-now",
+        { method: "POST" }
+      );
+      toast.success(res?.message ?? "Sync complete");
+      await loadGmailStatus();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setGmailSyncing(false);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    if (!window.confirm("Disconnect Gmail? Activity sync will stop until you reconnect.")) return;
+    try {
+      setGmailDisconnecting(true);
+      await apiFetch("/api/integrations/gmail", { method: "DELETE" });
+      toast.success("Gmail disconnected");
+      setGmailConnected(false);
+      setGmailEmail(null);
+      setGmailLastSynced(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setGmailDisconnecting(false);
+    }
   };
 
   const sensitivityHint: Record<Sensitivity, string> = {
@@ -529,6 +639,87 @@ export default function SettingsPage() {
             ))}
           </div>
           <p className="text-[12px] text-zinc-300 mt-5">Pipeline stage sync is coming soon.</p>
+        </motion.div>
+      )}
+
+      {activeTab === "integrations" && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+          <p className="text-[13.5px] text-zinc-400 mb-6">
+            Connect your tools so Situs sees real activity automatically — no manual logging.
+          </p>
+
+          <div className="rounded-xl border border-zinc-100 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-red-50 shrink-0">
+                  <Mail size={16} className="text-red-500" />
+                </div>
+                <div>
+                  <p className="text-[14px] font-medium text-zinc-900">Gmail</p>
+                  {gmailLoading ? (
+                    <p className="text-[12.5px] text-zinc-400 mt-0.5">Checking connection…</p>
+                  ) : gmailConnected ? (
+                    <>
+                      <p className="text-[12.5px] text-emerald-600 mt-0.5">
+                        Connected as {gmailEmail}
+                      </p>
+                      <p className="text-[11.5px] text-zinc-400 mt-1">
+                        Last synced: {timeAgo(gmailLastSynced)}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[12.5px] text-zinc-400 mt-0.5">
+                      Auto-log emails as activity on matching leads
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {!gmailLoading && (
+                gmailConnected ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleSyncNow}
+                      disabled={gmailSyncing}
+                      title="Sync now"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium text-zinc-600 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={gmailSyncing ? "animate-spin" : ""} />
+                      {gmailSyncing ? "Syncing…" : "Sync now"}
+                    </button>
+                    <button
+                      onClick={handleDisconnectGmail}
+                      disabled={gmailDisconnecting}
+                      title="Disconnect"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      <Unlink size={12} />
+                      {gmailDisconnecting ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectGmail}
+                    className="px-4 py-1.5 bg-zinc-900 text-white rounded-lg text-[13px] font-medium hover:bg-zinc-700 transition-colors shrink-0"
+                  >
+                    Connect
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-100 p-5 mt-3 opacity-60">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-purple-50 shrink-0">
+                <Plug size={16} className="text-purple-500" />
+              </div>
+              <div>
+                <p className="text-[14px] font-medium text-zinc-900">Slack</p>
+                <p className="text-[12.5px] text-zinc-400 mt-0.5">Coming soon</p>
+              </div>
+            </div>
+          </div>
         </motion.div>
       )}
 
