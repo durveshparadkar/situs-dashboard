@@ -42,6 +42,7 @@ import analyticsRoutes from "./modules/analytics/analytics.routes.js";
 import intelligenceRoutes from "./modules/intelligence/intelligence.routes.js";
 import forecastRoutes from "./modules/forecast/forecast.routes.js";
 import organizationRoutes from "./modules/organizations/organization.routes.js";
+import gmailRoutes from "./modules/integrations/gmail.routes.js";
 
 /* ===============================
    MIDDLEWARES
@@ -178,6 +179,7 @@ app.use("/api/intelligence", intelligenceRoutes);
 app.use("/api/forecast", forecastRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/public", publicDemoRoutes);
+app.use("/api/integrations/gmail", gmailRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
