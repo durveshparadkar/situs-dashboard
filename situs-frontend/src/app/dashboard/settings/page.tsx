@@ -18,11 +18,10 @@ import {
   Unlink,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api";
 import { OrgCurrency, invalidateOrgCurrencyCache } from "@/lib/currency";
-
-/* ================= TYPES ================= */
 
 type Sensitivity = "Conservative" | "Balanced" | "Aggressive";
 type AISettings = { sensitivity: Sensitivity };
@@ -137,8 +136,6 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/* ================= SHARED UI ================= */
-
 function FieldRow({
   label, hint, children, last = false,
 }: { label: string; hint?: string; children: ReactNode; last?: boolean }) {
@@ -206,9 +203,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void 
   );
 }
 
-/* ================= PAGE ================= */
-
-export default function SettingsPage() {
+function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -232,7 +227,6 @@ export default function SettingsPage() {
   const [savedSnapshot, setSavedSnapshot] = useState<SavableSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<typeof TABS[number]["id"]>("profile");
 
-  /* ── Gmail integration state ── */
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [gmailLastSynced, setGmailLastSynced] = useState<string | null>(null);
@@ -309,10 +303,8 @@ export default function SettingsPage() {
   useEffect(() => {
     loadAll();
     loadGmailStatus();
-     
   }, []);
 
-  /* Handle redirect back from the Gmail OAuth callback */
   useEffect(() => {
     const gmailParam = searchParams.get("gmail");
     if (!gmailParam) return;
@@ -321,13 +313,9 @@ export default function SettingsPage() {
       toast.success("Gmail connected — syncing your recent emails");
       setActiveTab("integrations");
       loadGmailStatus();
-      // Trigger an immediate sync rather than waiting for the next
-      // scheduled batch run
       apiFetch("/api/integrations/gmail/sync-now", { method: "POST" })
         .then(() => loadGmailStatus())
-        .catch(() => {
-          /* best-effort — scheduled sync will pick it up regardless */
-        });
+        .catch(() => {});
     } else if (gmailParam === "declined") {
       toast("Gmail connection cancelled");
       setActiveTab("integrations");
@@ -336,9 +324,7 @@ export default function SettingsPage() {
       setActiveTab("integrations");
     }
 
-    // Clean the query param out of the URL so a refresh doesn't re-fire the toast
     router.replace("/dashboard/settings");
-     
   }, [router, searchParams]);
 
   const isDirty = useMemo(() => {
@@ -422,11 +408,7 @@ export default function SettingsPage() {
     setCurrency(savedSnapshot.currency);
   };
 
-  /* ── Gmail integration handlers ── */
-
   const handleConnectGmail = () => {
-    // Full navigation, not fetch — this needs to hit Google's consent
-    // screen, which can't happen via XHR
     window.location.href = "https://api.situsrevenue.com/api/integrations/gmail/connect";
   };
 
@@ -764,5 +746,20 @@ export default function SettingsPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-3xl mx-auto px-6 py-10 space-y-8">
+          <div className="h-8 w-40 bg-zinc-100 rounded animate-pulse" />
+          <div className="h-64 bg-zinc-50 rounded-2xl animate-pulse" />
+        </div>
+      }
+    >
+      <SettingsPageInner />
+    </Suspense>
   );
 }
