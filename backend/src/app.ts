@@ -47,6 +47,7 @@ import "./modules/integrations/gmail-sync.worker.js";
 import { scheduleGmailSync } from "./modules/integrations/gmail-sync.queue.js";
 import slackRoutes from "./modules/integrations/slack.routes.js";
 
+
 /* ===============================
    MIDDLEWARES
 =============================== */
@@ -184,6 +185,7 @@ app.use("/api/organizations", organizationRoutes);
 app.use("/api/public", publicDemoRoutes);
 app.use("/api/integrations/gmail", gmailRoutes);
 app.use("/api/integrations/slack", slackRoutes);
+
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
