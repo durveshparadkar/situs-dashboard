@@ -16,6 +16,7 @@ import {
   Mail,
   RefreshCw,
   Unlink,
+  Send,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -74,6 +75,16 @@ type GmailStatusResponse = {
     connected: boolean;
     email: string | null;
     lastSyncedAt: string | null;
+    connectedAt: string | null;
+  };
+};
+
+type SlackStatusResponse = {
+  success: boolean;
+  data?: {
+    connected: boolean;
+    channelName: string | null;
+    teamName: string | null;
     connectedAt: string | null;
   };
 };
@@ -234,6 +245,13 @@ function SettingsPageInner() {
   const [gmailSyncing, setGmailSyncing] = useState(false);
   const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
 
+  const [slackConnected, setSlackConnected] = useState(false);
+  const [slackChannel, setSlackChannel] = useState<string | null>(null);
+  const [slackTeam, setSlackTeam] = useState<string | null>(null);
+  const [slackLoading, setSlackLoading] = useState(true);
+  const [slackTesting, setSlackTesting] = useState(false);
+  const [slackDisconnecting, setSlackDisconnecting] = useState(false);
+
   const loadAll = async () => {
     try {
       setLoadError(false);
@@ -300,9 +318,24 @@ function SettingsPageInner() {
     }
   };
 
+  const loadSlackStatus = async () => {
+    try {
+      setSlackLoading(true);
+      const res = await apiFetch<SlackStatusResponse>("/api/integrations/slack/status");
+      setSlackConnected(res?.data?.connected ?? false);
+      setSlackChannel(res?.data?.channelName ?? null);
+      setSlackTeam(res?.data?.teamName ?? null);
+    } catch (err) {
+      console.error("Failed to load Slack status", err);
+    } finally {
+      setSlackLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAll();
     loadGmailStatus();
+    loadSlackStatus();
   }, []);
 
   useEffect(() => {
@@ -321,6 +354,25 @@ function SettingsPageInner() {
       setActiveTab("integrations");
     } else if (gmailParam === "error") {
       toast.error("Couldn't connect Gmail — please try again");
+      setActiveTab("integrations");
+    }
+
+    router.replace("/dashboard/settings");
+  }, [router, searchParams]);
+
+  useEffect(() => {
+    const slackParam = searchParams.get("slack");
+    if (!slackParam) return;
+
+    if (slackParam === "connected") {
+      toast.success("Slack connected!");
+      setActiveTab("integrations");
+      loadSlackStatus();
+    } else if (slackParam === "declined") {
+      toast("Slack connection cancelled");
+      setActiveTab("integrations");
+    } else if (slackParam === "error") {
+      toast.error("Couldn't connect Slack — please try again");
       setActiveTab("integrations");
     }
 
@@ -441,6 +493,41 @@ function SettingsPageInner() {
       toast.error(err instanceof Error ? err.message : "Failed to disconnect");
     } finally {
       setGmailDisconnecting(false);
+    }
+  };
+
+  const handleConnectSlack = () => {
+    window.location.href = "https://api.situsrevenue.com/api/integrations/slack/connect";
+  };
+
+  const handleTestSlack = async () => {
+    try {
+      setSlackTesting(true);
+      const res = await apiFetch<{ success: boolean; message?: string }>(
+        "/api/integrations/slack/test",
+        { method: "POST" }
+      );
+      toast.success(res?.message ?? "Test message sent");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send test message");
+    } finally {
+      setSlackTesting(false);
+    }
+  };
+
+  const handleDisconnectSlack = async () => {
+    if (!window.confirm("Disconnect Slack? Alerts will stop until you reconnect.")) return;
+    try {
+      setSlackDisconnecting(true);
+      await apiFetch("/api/integrations/slack", { method: "DELETE" });
+      toast.success("Slack disconnected");
+      setSlackConnected(false);
+      setSlackChannel(null);
+      setSlackTeam(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setSlackDisconnecting(false);
     }
   };
 
@@ -691,15 +778,64 @@ function SettingsPageInner() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-zinc-100 p-5 mt-3 opacity-60">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-purple-50 shrink-0">
-                <Plug size={16} className="text-purple-500" />
+          <div className="rounded-xl border border-zinc-100 p-5 mt-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-purple-50 shrink-0">
+                  <Plug size={16} className="text-purple-500" />
+                </div>
+                <div>
+                  <p className="text-[14px] font-medium text-zinc-900">Slack</p>
+                  {slackLoading ? (
+                    <p className="text-[12.5px] text-zinc-400 mt-0.5">Checking connection…</p>
+                  ) : slackConnected ? (
+                    <>
+                      <p className="text-[12.5px] text-emerald-600 mt-0.5">
+                        Connected to {slackChannel} on {slackTeam}
+                      </p>
+                      <p className="text-[11.5px] text-zinc-400 mt-1">
+                        Deal risk and forecast alerts post here automatically
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[12.5px] text-zinc-400 mt-0.5">
+                      Get deal risk and forecast alerts posted to a channel
+                    </p>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="text-[14px] font-medium text-zinc-900">Slack</p>
-                <p className="text-[12.5px] text-zinc-400 mt-0.5">Coming soon</p>
-              </div>
+
+              {!slackLoading && (
+                slackConnected ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleTestSlack}
+                      disabled={slackTesting}
+                      title="Send test message"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium text-zinc-600 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                    >
+                      <Send size={12} />
+                      {slackTesting ? "Sending…" : "Test"}
+                    </button>
+                    <button
+                      onClick={handleDisconnectSlack}
+                      disabled={slackDisconnecting}
+                      title="Disconnect"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      <Unlink size={12} />
+                      {slackDisconnecting ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectSlack}
+                    className="px-4 py-1.5 bg-zinc-900 text-white rounded-lg text-[13px] font-medium hover:bg-zinc-700 transition-colors shrink-0"
+                  >
+                    Connect
+                  </button>
+                )
+              )}
             </div>
           </div>
         </motion.div>
