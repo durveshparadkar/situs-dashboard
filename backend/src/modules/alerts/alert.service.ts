@@ -1,5 +1,8 @@
 import { Types } from "mongoose";
 import Alert from "./alert.model.js";
+import SlackConnection from "../integrations/slackConnection.model.js";
+import { postToSlackWebhook } from "../integrations/slack.oauth.js";
+import { dbLogger } from "../../utils/logger.js";
 
 /* =====================================================
    TYPES
@@ -66,6 +69,44 @@ function buildDedupKey(
 const COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 /* =====================================================
+   SLACK DELIVERY
+   Fire-and-forget: never let a Slack failure break alert creation.
+   Only called when a NEW alert document was genuinely just inserted
+   (not when createAlert matched/returned an existing one).
+===================================================== */
+
+const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
+  critical: "🔴",
+  high:     "🟠",
+  medium:   "🟡",
+  low:      "🟢",
+};
+
+async function notifySlack(
+  orgId: Types.ObjectId,
+  input: CreateAlertInput
+): Promise<void> {
+  try {
+    const connection = await SlackConnection.findOne({
+      organizationId: orgId,
+      isActive: true,
+    }).select("+webhookUrl channelName");
+
+    if (!connection) return; // org hasn't connected Slack — nothing to do
+
+    const emoji = SEVERITY_EMOJI[input.severity];
+    const text = `${emoji} *${input.title}*\n${input.message}`;
+
+    await postToSlackWebhook(connection.webhookUrl, text);
+  } catch (err) {
+    // Never let a Slack delivery failure affect alert creation itself
+    dbLogger.warn(
+      `Slack alert delivery failed for org ${orgId.toString()}: ${(err as Error).message}`
+    );
+  }
+}
+
+/* =====================================================
    SERVICE
 ===================================================== */
 
@@ -90,9 +131,12 @@ class AlertService {
 
     if (existing) return existing;
 
-    /* Atomic upsert — handles concurrent writes safely */
+    /* Atomic upsert — handles concurrent writes safely.
+       rawResult:true lets us see lastErrorObject.upserted, which is
+       only set when this call TRULY inserted a new document — that's
+       the only case we want to notify Slack for. */
     try {
-      return await Alert.findOneAndUpdate(
+      const rawResult = (await Alert.findOneAndUpdate(
         { organizationId: orgId, dedupKey },
         {
           $setOnInsert: {
@@ -108,8 +152,21 @@ class AlertService {
             metadata: data.metadata ?? {},
           },
         },
-        { new: true, upsert: true }
-      ).lean();
+        { new: true, upsert: true, rawResult: true }
+      )) as unknown as {
+        value?: unknown;
+        lastErrorObject?: { upserted?: unknown };
+      };
+
+      const alertDoc = rawResult?.value;
+      const wasNewlyInserted = Boolean(rawResult?.lastErrorObject?.upserted);
+
+      if (wasNewlyInserted) {
+        // Fire-and-forget — don't await, don't block the response on Slack
+        void notifySlack(orgId, data);
+      }
+
+      return alertDoc ? (alertDoc as { toObject?: () => unknown }).toObject?.() ?? alertDoc : alertDoc;
     } catch (err: unknown) {
       /* Duplicate key — another process won the race; return existing */
       if (
