@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import DrawerShell from "./shared/drawer-shell";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
+import LeadActivityTimeline from "./lead-activity-timeline";
 
 interface Lead {
   _id?: string;
@@ -257,6 +258,16 @@ export default function LeadDrawer({ lead, onClose, onUpdate }: Props) {
             <ArrowRight size={14} />
             Convert to Deal
           </button>
+        )}
+
+        {/* ACTIVITY TIMELINE — only for existing leads */}
+        {isEdit && lead?._id && (
+          <div>
+            <SectionTitle>Activity</SectionTitle>
+            <div className="mt-3">
+              <LeadActivityTimeline leadId={lead._id} />
+            </div>
+          </div>
         )}
       </div>
     </DrawerShell>
