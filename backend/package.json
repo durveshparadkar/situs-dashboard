@@ -7,7 +7,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "nodemon --watch src --exec tsx src/server.ts",
-    "build": "tsc",
+    "build": "node --max-old-space-size=460 ./node_modules/typescript/bin/tsc",
     "start": "node dist/server.js",
     "clean": "rm -rf dist"
   },
