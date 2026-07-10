@@ -26,6 +26,14 @@ export interface ILead {
   isStale: boolean;
   lastActivityAt: Date;
 
+  /* Import dedup — mirrors Deal.externalIds. Lets HubSpot (or future
+     CRM) imports be re-run safely without creating duplicate leads. */
+  externalIds?: {
+    hubspotContactId?: string;
+    salesforceId?: string;
+    crmSource?: "hubspot" | "salesforce" | "manual" | "import";
+  };
+
   brainPriority: "low" | "medium" | "high" | "critical";
 
   brainSnapshot?: {
@@ -103,6 +111,19 @@ const EscalationSchema = new Schema(
     approvedBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
+    },
+  },
+  { _id: false }
+);
+
+const ExternalIdsSchema = new Schema(
+  {
+    hubspotContactId: { type: String, trim: true, index: true, sparse: true },
+    salesforceId: { type: String, trim: true, index: true, sparse: true },
+    crmSource: {
+      type: String,
+      enum: ["hubspot", "salesforce", "manual", "import"],
+      default: "manual",
     },
   },
   { _id: false }
@@ -216,6 +237,13 @@ const LeadSchema = new Schema<LeadDocument>(
       index: true,
     },
 
+    /* ================= EXTERNAL / IMPORT ================= */
+
+    externalIds: {
+      type: ExternalIdsSchema,
+      default: undefined,
+    },
+
     brainPriority: {
       type: String,
       enum: ["low", "medium", "high", "critical"],
@@ -307,6 +335,12 @@ LeadSchema.index({ organizationId: 1, "escalation.approved": 1 });
 LeadSchema.index(
   { organizationId: 1, phone: 1 },
   { unique: false }
+);
+
+// 🚀 dedup (HubSpot import — same contact never imported twice per org)
+LeadSchema.index(
+  { organizationId: 1, "externalIds.hubspotContactId": 1 },
+  { unique: false, sparse: true }
 );
 
 /* =====================================================

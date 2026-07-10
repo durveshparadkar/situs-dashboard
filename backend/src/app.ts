@@ -47,6 +47,7 @@ import "./modules/integrations/gmail-sync.worker.js";
 import { scheduleGmailSync } from "./modules/integrations/gmail-sync.queue.js";
 import slackRoutes from "./modules/integrations/slack.routes.js";
 import zoomRoutes from "./modules/integrations/zoom.routes.js";
+import hubspotRoutes from "./modules/integrations/hubspot.routes.js";
 
 /* ===============================
    MIDDLEWARES
@@ -186,6 +187,7 @@ app.use("/api/public", publicDemoRoutes);
 app.use("/api/integrations/gmail", gmailRoutes);
 app.use("/api/integrations/slack", slackRoutes);
 app.use("/api/integrations/zoom", zoomRoutes);
+app.use("/api/integrations/hubspot", hubspotRoutes);
 /* ===============================
    QUEUE DASHBOARD
 =============================== */
