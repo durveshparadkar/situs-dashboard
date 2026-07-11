@@ -24,13 +24,6 @@ const QUOTES = [
   },
 ];
 
-const CURRENCIES = [
-  { code: "INR", label: "₹ INR — Indian Rupee" },
-  { code: "USD", label: "$ USD — US Dollar" },
-  { code: "EUR", label: "€ EUR — Euro" },
-  { code: "GBP", label: "£ GBP — British Pound" },
-] as const;
-
 const fadeUp = {
   hidden: { opacity: 0, y: 10 },
   visible: (i: number) => ({
@@ -47,7 +40,10 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [organizationName, setOrganizationName] = useState("");
-  const [currency, setCurrency] = useState<"INR" | "USD" | "EUR" | "GBP">("INR");
+
+  // Currency selection removed from signup UI — defaults to INR.
+  // Users can change this later from Settings.
+  const currency: "INR" | "USD" | "EUR" | "GBP" = "INR";
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -60,15 +56,15 @@ export default function SignupPage() {
     return () => clearInterval(interval);
   }, []);
 
-   useEffect(() => {
-  /* Wake up the backend immediately on page load — Render's free tier
-     spins down on inactivity, so the first real request (login) would
-     otherwise wait through a 30-50s cold start. Pinging /health here
-     means the server is already warming up while the user types. */
-  fetch("https://api.situsrevenue.com/health").catch(() => {
-    /* best-effort — ignore failures, this is just a warm-up ping */
-  });
-}, []);
+  useEffect(() => {
+    /* Wake up the backend immediately on page load — Render's free tier
+       spins down on inactivity, so the first real request (login) would
+       otherwise wait through a 30-50s cold start. Pinging /health here
+       means the server is already warming up while the user types. */
+    fetch("https://api.situsrevenue.com/health").catch(() => {
+      /* best-effort — ignore failures, this is just a warm-up ping */
+    });
+  }, []);
 
   /* Password strength — simple heuristic for the visual bar */
   const passwordStrength = (() => {
@@ -82,12 +78,6 @@ export default function SignupPage() {
     return Math.min(score, 4);
   })();
 
-  const strengthColor =
-    passwordStrength <= 1
-      ? "bg-red-400"
-      : passwordStrength === 2
-      ? "bg-amber-400"
-      : "bg-emerald-500";
 
   /* ================= SIGNUP ================= */
 
@@ -371,10 +361,14 @@ export default function SignupPage() {
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className={`h-1 flex-1 rounded-full transition-colors ${
-                      i < passwordStrength ? strengthColor : "bg-slate-150"
-                    }`}
-                    style={i >= passwordStrength ? { backgroundColor: "#e2e8f0" } : undefined}
+                    className="h-1 flex-1 rounded-full transition-colors"
+                    style={{
+                      backgroundColor:
+                        i < passwordStrength
+                          ? undefined
+                          : "#e2e8f0",
+                    }}
+                    data-active={i < passwordStrength}
                   />
                 ))}
               </div>
@@ -396,28 +390,6 @@ export default function SignupPage() {
                 onKeyDown={(e) => e.key === "Enter" && handleSignup()}
                 autoComplete="organization"
               />
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500 mb-1">
-                Currency
-              </p>
-              <select
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 bg-white"
-                value={currency}
-                onChange={(e) =>
-                  setCurrency(e.target.value as "INR" | "USD" | "EUR" | "GBP")
-                }
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-400 mt-1">
-                All deals and reports in your workspace will use this currency
-              </p>
             </div>
 
           </motion.div>
@@ -449,18 +421,9 @@ export default function SignupPage() {
             🔒 Secured with industry-standard encryption
           </motion.p>
 
-          <p className="text-sm text-center text-slate-500">
-            Already have an account?{" "}
-            <span
-              onClick={() => router.push("/login")}
-              className="text-slate-900 font-medium cursor-pointer hover:underline"
-            >
-              Login
-            </span>
-          </p>
+          <p className="text-sm text-center text-slate-500"></p>
 
         </motion.div>
-
       </div>
     </div>
   );
