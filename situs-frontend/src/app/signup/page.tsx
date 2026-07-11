@@ -41,10 +41,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [organizationName, setOrganizationName] = useState("");
 
-  // Currency selection removed from signup UI — defaults to INR.
-  // Users can change this later from Settings.
-  const currency: "INR" | "USD" | "EUR" | "GBP" = "INR";
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [quoteIndex, setQuoteIndex] = useState(0);
@@ -78,6 +74,12 @@ export default function SignupPage() {
     return Math.min(score, 4);
   })();
 
+  const strengthColor =
+    passwordStrength <= 1
+      ? "bg-red-400"
+      : passwordStrength === 2
+      ? "bg-amber-400"
+      : "bg-emerald-500";
 
   /* ================= SIGNUP ================= */
 
@@ -104,12 +106,10 @@ export default function SignupPage() {
         password:          string;
         fullName:          string;
         organizationName?: string;
-        currency:          "INR" | "USD" | "EUR" | "GBP";
       } = {
         email:    email.trim().toLowerCase(),
         password: password,
         fullName: fullName.trim(),
-        currency: currency,
       };
 
       const trimmedOrg = organizationName.trim();
@@ -361,14 +361,10 @@ export default function SignupPage() {
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="h-1 flex-1 rounded-full transition-colors"
-                    style={{
-                      backgroundColor:
-                        i < passwordStrength
-                          ? undefined
-                          : "#e2e8f0",
-                    }}
-                    data-active={i < passwordStrength}
+                    className={`h-1 flex-1 rounded-full transition-colors ${
+                      i < passwordStrength ? strengthColor : ""
+                    }`}
+                    style={i >= passwordStrength ? { backgroundColor: "#e2e8f0" } : undefined}
                   />
                 ))}
               </div>
@@ -420,8 +416,6 @@ export default function SignupPage() {
           >
             🔒 Secured with industry-standard encryption
           </motion.p>
-
-          <p className="text-sm text-center text-slate-500"></p>
 
         </motion.div>
       </div>
