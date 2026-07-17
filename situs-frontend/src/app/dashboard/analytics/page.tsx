@@ -17,9 +17,6 @@ const PageContainer = ({ children }: { children: ReactNode }) => (
   </div>
 );
 
-/* Same Card language as Settings/Alerts — rounded-2xl, subtle hover
-   lift (Aesthetic-Usability Effect), zinc borders throughout so the
-   whole app reads as one coherent product. */
 const Card = ({
   children,
   className = "",
@@ -211,9 +208,6 @@ export default function AnalyticsPage() {
           Total Revenue <span className="text-white/40 mx-1.5">·</span> Conversion {data.summary.avgConversion}%
         </p>
 
-        {/* Fading key-line reads as "one live thought at a time" rather
-            than a wall of bullet points — reduces cognitive load while
-            still surfacing the same rotating insights. */}
         <motion.p
           key={insightIndex}
           initial={{ opacity: 0, y: 4 }}
@@ -312,36 +306,76 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {/* FUNNEL — rebuilt for clarity:
+          - Stage name is now actually shown (it was accidentally
+            dropped in the last pass)
+          - A one-line caption explains what the section means, since
+            "Funnel" alone doesn't tell a first-time viewer what
+            they're looking at
+          - Conversion is color-coded (green/amber/red) so health
+            reads at a glance, same pattern as severity elsewhere
+          - Bar width now reflects the actual conversion % instead of
+            an arbitrary "deals * 5" guess, so the bar means something
+          - Deal count shown as a small pill badge, not buried in the
+            caption text underneath */}
       <Card>
-        <h3 className="text-[14px] font-semibold text-zinc-900 mb-4">Funnel</h3>
+        <h3 className="text-[14px] font-semibold text-zinc-900 mb-1">Funnel</h3>
+        <p className="text-[12.5px] text-zinc-400 mb-5">
+          How deals move through each stage — conversion is the share that reached the next stage
+        </p>
 
         {funnelStages.length === 0 ? (
           <p className="text-[13.5px] text-zinc-400 text-center py-8">
             No funnel data yet
           </p>
         ) : (
-          funnelStages.map((stage) => (
-            <div key={stage.id} className="mb-4 last:mb-0">
-              <div className="flex justify-between text-[13.5px] text-zinc-700">
-                <span className="tabular-nums text-zinc-500">
-                  {stage.conversion !== null ? `${stage.conversion}%` : "—"}
-                </span>
-              </div>
+          <div className="space-y-5">
+            {funnelStages.map((stage) => {
+              const conv = stage.conversion;
+              const barWidth = conv !== null ? Math.min(Math.max(conv, 0), 100) : 0;
 
-              <div className="h-2 bg-zinc-100 rounded-full mt-2 overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(stage.deals * 5, 100)}%` }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
-                  className="h-full bg-zinc-900 rounded-full"
-                />
-              </div>
+              const convColor =
+                conv === null ? "text-zinc-400"
+                  : conv >= 60 ? "text-emerald-600"
+                  : conv >= 30 ? "text-amber-600"
+                  : "text-red-500";
 
-              <p className="text-[12px] text-zinc-400 mt-1.5">
-                {formatCurrency(stage.totalValue, currency)} <span className="mx-1">·</span> {stage.avgDays} days
-              </p>
-            </div>
-          ))
+              const barColor =
+                conv === null ? "bg-zinc-300"
+                  : conv >= 60 ? "bg-emerald-500"
+                  : conv >= 30 ? "bg-amber-500"
+                  : "bg-red-400";
+
+              return (
+                <div key={stage.id}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13.5px] font-medium text-zinc-900">{stage.name}</span>
+                      <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full font-medium tabular-nums">
+                        {stage.deals} {stage.deals === 1 ? "deal" : "deals"}
+                      </span>
+                    </div>
+                    <span className={`text-[13.5px] font-semibold tabular-nums ${convColor}`}>
+                      {conv !== null ? `${conv}%` : "—"}
+                    </span>
+                  </div>
+
+                  <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${barWidth}%` }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className={`h-full rounded-full ${barColor}`}
+                    />
+                  </div>
+
+                  <p className="text-[12px] text-zinc-400 mt-1.5">
+                    {formatCurrency(stage.totalValue, currency)} in this stage <span className="mx-1">·</span> {stage.avgDays} {stage.avgDays === 1 ? "day" : "days"} average
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         )}
       </Card>
     </PageContainer>
