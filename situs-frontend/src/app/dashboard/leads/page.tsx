@@ -18,11 +18,12 @@ import {
 import { formatCurrency, useOrgCurrency, OrgCurrency } from "@/lib/currency";
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
-  <div className="min-h-screen bg-slate-50">
+  <div className="min-h-screen bg-zinc-50/40">
     <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
   </div>
 );
 
+/* Same Card language as every other page */
 const Card = ({
   children,
   className = "",
@@ -34,8 +35,7 @@ const Card = ({
     initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.25, ease: "easeOut" }}
-    whileHover={{ y: -2 }}
-    className={`rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
+    className={`rounded-2xl border border-zinc-100 transition-all duration-200 hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)] p-5 ${className}`}
   >
     {children}
   </motion.div>
@@ -106,7 +106,7 @@ function getPriorityBadge(priority?: Lead["brainPriority"]) {
   if (priority === "medium") {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
-  return "bg-slate-100 text-slate-600 border-slate-200";
+  return "bg-zinc-100 text-zinc-600 border-zinc-200";
 }
 
 /* ================= AI SCORING ENGINE ================= */
@@ -121,12 +121,10 @@ type ScoredLead = Lead & {
   signals: ConversionSignal[];
 };
 
-/* Score each lead using available signals — pure client-side, no new API */
 function scoreLeadForConversion(lead: Lead): ScoredLead {
   let score = 0;
   const signals: ConversionSignal[] = [];
 
-  /* Brain priority from existing AI engine */
   if (lead.brainPriority === "critical") {
     score += 40;
     signals.push({ label: "AI flagged critical", color: "bg-red-50 text-red-700 border-red-200" });
@@ -137,13 +135,11 @@ function scoreLeadForConversion(lead: Lead): ScoredLead {
     score += 15;
   }
 
-  /* Lead score from brain engine if available */
   if (lead.leadScore && lead.leadScore > 70) {
     score += 15;
     signals.push({ label: `Lead score ${lead.leadScore}`, color: "bg-indigo-50 text-indigo-700 border-indigo-200" });
   }
 
-  /* Budget signals */
   if (lead.budget >= 1_000_000) {
     score += 25;
     signals.push({ label: "High budget", color: "bg-emerald-50 text-emerald-700 border-emerald-200" });
@@ -154,7 +150,6 @@ function scoreLeadForConversion(lead: Lead): ScoredLead {
     score += 8;
   }
 
-  /* Source quality */
   if (lead.source === "CUSTOMER_REFERRAL") {
     score += 20;
     signals.push({ label: "Referral source", color: "bg-amber-50 text-amber-700 border-amber-200" });
@@ -166,7 +161,6 @@ function scoreLeadForConversion(lead: Lead): ScoredLead {
     signals.push({ label: "Called in", color: "bg-blue-50 text-blue-700 border-blue-200" });
   }
 
-  /* Freshness — recent leads convert better */
   const daysSinceCreated = Math.floor(
     (Date.now() - new Date(lead.createdAt).getTime()) / (1000 * 60 * 60 * 24)
   );
@@ -177,7 +171,7 @@ function scoreLeadForConversion(lead: Lead): ScoredLead {
     score += 8;
     signals.push({ label: "Added this week", color: "bg-violet-50 text-violet-700 border-violet-200" });
   } else if (daysSinceCreated > 30) {
-    score -= 10; /* Aging penalty */
+    score -= 10;
   }
 
   return { ...lead, conversionScore: Math.min(score, 100), signals };
@@ -391,7 +385,7 @@ export default function LeadsPage() {
     const active = leads.filter((l) => !l.isArchived);
     return active
       .map(scoreLeadForConversion)
-      .filter((l) => l.conversionScore >= 20) /* only show if meaningful signal */
+      .filter((l) => l.conversionScore >= 20)
       .sort((a, b) => b.conversionScore - a.conversionScore)
       .slice(0, 3);
   }, [leads]);
@@ -402,17 +396,17 @@ export default function LeadsPage() {
     return (
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         <div className="space-y-2 animate-pulse">
-          <div className="h-4 w-16 bg-slate-200 rounded-md" />
-          <div className="h-7 w-40 bg-slate-200 rounded-md" />
-          <div className="h-4 w-64 bg-slate-100 rounded-md" />
+          <div className="h-4 w-16 bg-zinc-100 rounded-lg" />
+          <div className="h-7 w-40 bg-zinc-100 rounded-lg" />
+          <div className="h-4 w-64 bg-zinc-100 rounded-lg" />
         </div>
-        <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="h-24 bg-zinc-50 rounded-2xl animate-pulse" />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
+            <div key={i} className="h-20 bg-zinc-50 rounded-2xl animate-pulse" />
           ))}
         </div>
-        <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="h-64 bg-zinc-50 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -425,14 +419,14 @@ export default function LeadsPage() {
           <div>
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
+              className="flex items-center gap-2 text-[13px] text-zinc-400 hover:text-zinc-900 transition-colors mb-2 group"
             >
-              <ArrowLeft size={16} /> Back
+              <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" /> Back
             </button>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            <h1 className="text-[28px] font-semibold text-zinc-900 tracking-tight">
               Leads
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <p className="text-[14px] text-zinc-400 mt-1">
               Track potential customers from first touch to qualification
             </p>
           </div>
@@ -440,9 +434,9 @@ export default function LeadsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowImport(true)}
-              className="flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 hover:border-slate-400 transition-colors"
+              className="flex items-center justify-center gap-2 border border-zinc-200 text-zinc-700 px-4 py-2.5 rounded-xl text-[13px] font-medium hover:bg-zinc-50 hover:border-zinc-300 active:scale-[0.97] transition-all"
             >
-              <Upload size={16} />
+              <Upload size={15} />
               Import
             </button>
             <button
@@ -458,21 +452,21 @@ export default function LeadsPage() {
                   })
                 )
               }
-              className="flex items-center justify-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-800 active:scale-[0.98] transition"
+              className="flex items-center justify-center gap-2 bg-zinc-900 text-white px-4 py-2.5 rounded-xl text-[13px] font-medium hover:bg-zinc-700 active:scale-[0.97] transition-all"
             >
-              <Plus size={16} />
+              <Plus size={15} />
               Add Lead
             </button>
           </div>
         </div>
 
         {/* HERO */}
-        <Card className="bg-slate-950 text-white border-none">
+        <Card className="bg-gradient-to-br from-zinc-950 to-zinc-800 text-white border-none">
           <h2 className="text-3xl font-bold tracking-tight tabular-nums">
             {formatCurrency(metrics.pipeline, currency)}
           </h2>
-          <p className="text-white/70 mt-2 text-sm">
-            Pipeline value • {metrics.total} lead{metrics.total === 1 ? "" : "s"}
+          <p className="text-white/70 mt-2 text-[13.5px]">
+            Pipeline value <span className="text-white/40 mx-1.5">·</span> {metrics.total} lead{metrics.total === 1 ? "" : "s"}
           </p>
         </Card>
 
@@ -497,9 +491,8 @@ export default function LeadsPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
-              className="rounded-2xl border border-emerald-200 bg-white overflow-hidden shadow-sm"
+              className="rounded-2xl border border-emerald-200 bg-white overflow-hidden"
             >
-              {/* Panel header */}
               <div className="flex items-center gap-2.5 px-5 py-4 border-b border-emerald-100 bg-emerald-50/40">
                 <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-100 ring-1 ring-emerald-200/60">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700" strokeWidth={2} />
@@ -514,31 +507,27 @@ export default function LeadsPage() {
                 </div>
               </div>
 
-              {/* Lead rows */}
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-zinc-100">
                 {topConversionLeads.map((lead, i) => (
                   <motion.div
                     key={lead._id}
                     initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.05 + i * 0.06, duration: 0.2 }}
-                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors"
+                    className="flex items-center gap-4 px-5 py-4 hover:bg-zinc-50/60 transition-colors"
                   >
-                    {/* Rank */}
-                    <span className="text-[12px] font-semibold tabular-nums text-slate-300 w-5 shrink-0">
+                    <span className="text-[12px] font-semibold tabular-nums text-zinc-300 w-5 shrink-0">
                       {String(i + 1).padStart(2, "0")}
                     </span>
 
-                    {/* Lead info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p
-                          className="text-[13.5px] font-semibold text-slate-900 cursor-pointer hover:text-emerald-700 transition-colors truncate"
+                          className="text-[13.5px] font-semibold text-zinc-900 cursor-pointer hover:text-emerald-700 transition-colors truncate"
                           onClick={() => setSelectedLead(lead)}
                         >
                           {lead.name}
                         </p>
-                        {/* Signal chips — show top 2 only to avoid clutter */}
                         {lead.signals.slice(0, 2).map((signal) => (
                           <span
                             key={signal.label}
@@ -548,14 +537,13 @@ export default function LeadsPage() {
                           </span>
                         ))}
                       </div>
-                      <p className="text-[12px] text-slate-400 mt-0.5">
+                      <p className="text-[12px] text-zinc-400 mt-0.5">
                         {formatCurrency(lead.budget, currency)} · {lead.interestedLocation || "—"}
                       </p>
                     </div>
 
-                    {/* Conversion score bar */}
                     <div className="hidden sm:flex items-center gap-2 shrink-0">
-                      <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="w-20 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${lead.conversionScore}%` }}
@@ -568,7 +556,6 @@ export default function LeadsPage() {
                       </span>
                     </div>
 
-                    {/* Convert button */}
                     <button
                       onClick={() => openConvert(lead)}
                       className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.97] px-3 py-1.5 rounded-lg transition-all shrink-0"
@@ -590,11 +577,11 @@ export default function LeadsPage() {
               placeholder="Search leads..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
+              className="flex-1 px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13.5px] outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/5"
             />
             <button
               onClick={() => setSortHigh((current) => !current)}
-              className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
+              className="px-4 py-2.5 border border-zinc-200 rounded-xl text-[13px] font-medium text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 active:scale-[0.97] transition-all whitespace-nowrap"
             >
               {sortHigh ? "High to Low" : "Low to High"}
             </button>
@@ -604,45 +591,45 @@ export default function LeadsPage() {
         {/* TABLE */}
         <Card className="bg-white p-0 overflow-hidden">
           {processedLeads.length === 0 ? (
-            <div className="text-center py-20 text-sm">
-              <p className="text-slate-500">
+            <div className="text-center py-20">
+              <p className="text-zinc-900 text-[14px] font-medium">
                 {search ? "No leads match your search" : "No leads yet"}
               </p>
               {!search && (
-                <p className="text-slate-400 text-xs mt-1">
+                <p className="text-zinc-400 text-[13px] mt-1">
                   Add your first lead or import from a spreadsheet
                 </p>
               )}
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-sm">
-                <thead className="text-left text-slate-500 bg-slate-50 border-b border-slate-100">
+              <table className="w-full min-w-[920px] text-[13.5px]">
+                <thead className="text-left text-zinc-400 bg-zinc-50/60 border-b border-zinc-100">
                   <tr>
-                    <th className="py-3 px-4 font-medium">Name</th>
-                    <th className="py-3 px-4 font-medium">Phone</th>
-                    <th className="py-3 px-4 font-medium">Location</th>
-                    <th className="py-3 px-4 font-medium">Budget</th>
-                    <th className="py-3 px-4 font-medium">Priority</th>
-                    <th className="py-3 px-4 font-medium text-right">Action</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide">Name</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide">Phone</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide">Location</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide">Budget</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide">Priority</th>
+                    <th className="py-3 px-4 font-medium text-[11px] uppercase tracking-wide text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {processedLeads.map((lead) => (
                     <tr
                       key={lead._id}
-                      className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer align-middle transition-colors"
+                      className="border-t border-zinc-100 hover:bg-zinc-50/60 cursor-pointer align-middle transition-colors"
                       onClick={() => setSelectedLead(lead)}
                     >
-                      <td className="py-3.5 px-4 font-medium text-slate-900">
+                      <td className="py-3.5 px-4 font-medium text-zinc-900">
                         {lead.name || "Untitled"}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-700">{lead.phone || "-"}</td>
-                      <td className="py-3.5 px-4 text-slate-700">{lead.interestedLocation || "-"}</td>
-                      <td className="py-3.5 px-4 tabular-nums text-slate-700">{formatCurrency(lead.budget, currency)}</td>
+                      <td className="py-3.5 px-4 text-zinc-700">{lead.phone || "—"}</td>
+                      <td className="py-3.5 px-4 text-zinc-700">{lead.interestedLocation || "—"}</td>
+                      <td className="py-3.5 px-4 tabular-nums text-zinc-700 font-medium">{formatCurrency(lead.budget, currency)}</td>
                       <td className="py-3.5 px-4">
                         <span
-                          className={`px-2 py-1 text-xs rounded-full border ${getPriorityBadge(
+                          className={`px-2.5 py-1 text-[11px] font-medium rounded-full border ${getPriorityBadge(
                             lead.brainPriority
                           )}`}
                         >
@@ -656,7 +643,7 @@ export default function LeadsPage() {
                               e.stopPropagation();
                               openConvert(lead);
                             }}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                            className="inline-flex items-center gap-1 text-[11.5px] font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 active:scale-95 transition-all"
                           >
                             Convert
                             <ArrowRight size={13} />
@@ -667,9 +654,9 @@ export default function LeadsPage() {
                               e.stopPropagation();
                               setDeleteTarget(lead);
                             }}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 active:scale-95 transition-all"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </td>
@@ -685,7 +672,7 @@ export default function LeadsPage() {
       {/* ================= CONVERT MINI-FORM ================= */}
       {convertTarget && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-zinc-950/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeConvert}
         >
           <motion.div
@@ -696,41 +683,41 @@ export default function LeadsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Convert to deal</h2>
-              <p className="text-sm text-slate-500 mt-1">
+              <h2 className="text-[16px] font-semibold text-zinc-900">Convert to deal</h2>
+              <p className="text-[13px] text-zinc-500 mt-1">
                 Promote {convertTarget.lead.name || "this lead"} into your deal pipeline.
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-500 mb-1.5">Deal title</label>
+                <label className="block text-[12px] text-zinc-500 mb-1.5">Deal title</label>
                 <input
                   value={convertTarget.title}
                   onChange={(e) =>
                     setConvertTarget((t) => t ? { ...t, title: e.target.value } : t)
                   }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
+                  className="w-full px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13.5px] outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/5"
                   placeholder="Deal title"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-slate-500 mb-1.5">Value ({currencySymbol})</label>
+                <label className="block text-[12px] text-zinc-500 mb-1.5">Value ({currencySymbol})</label>
                 <input
                   type="number"
                   value={convertTarget.value}
                   onChange={(e) =>
                     setConvertTarget((t) => t ? { ...t, value: Number(e.target.value) } : t)
                   }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-black/5"
+                  className="w-full px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13.5px] outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/5"
                   placeholder="0"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-slate-500 mb-1.5">
-                  Probability: {convertTarget.probability}%
+                <label className="block text-[12px] text-zinc-500 mb-1.5">
+                  Probability: <span className="font-medium text-zinc-700">{convertTarget.probability}%</span>
                 </label>
                 <input
                   type="range"
@@ -741,7 +728,7 @@ export default function LeadsPage() {
                   onChange={(e) =>
                     setConvertTarget((t) => t ? { ...t, probability: Number(e.target.value) } : t)
                   }
-                  className="w-full accent-black"
+                  className="w-full accent-zinc-900"
                 />
               </div>
             </div>
@@ -750,14 +737,14 @@ export default function LeadsPage() {
               <button
                 onClick={closeConvert}
                 disabled={converting}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 border border-zinc-200 py-2.5 rounded-xl text-[13px] font-medium text-zinc-600 hover:bg-zinc-50 active:scale-[0.97] transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConvert}
                 disabled={converting}
-                className="flex-1 bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 disabled:opacity-60 transition-colors"
+                className="flex-1 bg-zinc-900 text-white py-2.5 rounded-xl text-[13px] font-medium hover:bg-zinc-700 disabled:opacity-60 active:scale-[0.97] transition-all"
               >
                 {converting ? "Converting..." : "Create Deal"}
               </button>
@@ -769,7 +756,7 @@ export default function LeadsPage() {
       {/* ================= DELETE CONFIRMATION MODAL ================= */}
       {deleteTarget && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-zinc-950/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeDelete}
         >
           <motion.div
@@ -784,13 +771,13 @@ export default function LeadsPage() {
                 <Trash2 size={18} className="text-red-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Delete lead?</h2>
-                <p className="text-sm text-slate-500">This can&apos;t be undone.</p>
+                <h2 className="text-[16px] font-semibold text-zinc-900">Delete lead?</h2>
+                <p className="text-[13px] text-zinc-500">This can&apos;t be undone.</p>
               </div>
             </div>
-            <p className="text-sm text-slate-600">
+            <p className="text-[13.5px] text-zinc-600 leading-relaxed">
               You&apos;re about to delete{" "}
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-zinc-900">
                 {deleteTarget.name || "this lead"}
               </span>.
             </p>
@@ -798,14 +785,14 @@ export default function LeadsPage() {
               <button
                 onClick={closeDelete}
                 disabled={deleting}
-                className="flex-1 border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 border border-zinc-200 py-2.5 rounded-xl text-[13px] font-medium text-zinc-600 hover:bg-zinc-50 active:scale-[0.97] transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700 disabled:opacity-60 transition-colors"
+                className="flex-1 bg-red-600 text-white py-2.5 rounded-xl text-[13px] font-medium hover:bg-red-700 disabled:opacity-60 active:scale-[0.97] transition-all"
               >
                 {deleting ? "Deleting..." : "Delete"}
               </button>
@@ -817,7 +804,7 @@ export default function LeadsPage() {
       {/* ================= IMPORT MODAL ================= */}
       {showImport && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-zinc-950/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
           onClick={closeImport}
         >
           <motion.div
@@ -828,40 +815,40 @@ export default function LeadsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Import leads</h2>
-              <p className="text-sm text-slate-500 mt-1">
+              <h2 className="text-[16px] font-semibold text-zinc-900">Import leads</h2>
+              <p className="text-[13px] text-zinc-500 mt-1">
                 Bulk-add leads from a CSV or Excel file.
               </p>
             </div>
 
             {!importResult ? (
               <>
-                <div className="space-y-3 text-sm">
+                <div className="space-y-3 text-[13.5px]">
                   <div className="flex items-start gap-3">
-                    <span className="font-semibold text-slate-900">1.</span>
+                    <span className="font-semibold text-zinc-900">1.</span>
                     <div>
-                      <p className="text-slate-700">Download the template</p>
+                      <p className="text-zinc-700">Download the template</p>
                       <button
                         onClick={handleDownloadTemplate}
-                        className="mt-1 text-emerald-600 hover:text-emerald-700 underline"
+                        className="mt-1 text-emerald-600 hover:text-emerald-700 underline underline-offset-2"
                       >
                         Download situs-leads-template.csv
                       </button>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="font-semibold text-slate-900">2.</span>
-                    <p className="text-slate-700">
+                    <span className="font-semibold text-zinc-900">2.</span>
+                    <p className="text-zinc-700">
                       Fill it in: name, phone, email, budget, interestedLocation, source
                     </p>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="font-semibold text-slate-900">3.</span>
-                    <p className="text-slate-700">Upload the file below (CSV or Excel)</p>
+                    <span className="font-semibold text-zinc-900">3.</span>
+                    <p className="text-zinc-700">Upload the file below (CSV or Excel)</p>
                   </div>
                 </div>
 
-                <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50/50 transition-colors">
+                <label className="block border-2 border-dashed border-zinc-200 rounded-xl p-8 text-center cursor-pointer hover:border-zinc-300 hover:bg-zinc-50/50 transition-colors">
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -873,7 +860,7 @@ export default function LeadsPage() {
                       e.target.value = "";
                     }}
                   />
-                  <span className="text-sm text-slate-500">
+                  <span className="text-[13.5px] text-zinc-500">
                     {importing ? "Importing..." : "Click to choose a CSV or Excel file"}
                   </span>
                 </label>
@@ -881,21 +868,21 @@ export default function LeadsPage() {
                 <button
                   onClick={closeImport}
                   disabled={importing}
-                  className="w-full border border-slate-300 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                  className="w-full border border-zinc-200 py-2.5 rounded-xl text-[13px] font-medium text-zinc-600 hover:bg-zinc-50 active:scale-[0.97] transition-all"
                 >
                   Cancel
                 </button>
               </>
             ) : (
               <div className="space-y-3">
-                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3.5 text-[13.5px] text-emerald-700 font-medium">
                   {importResult.created} leads imported
                   {importResult.failed > 0 && ` (${importResult.failed} failed on server)`}
                 </div>
                 {importResult.skipped.length > 0 && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-[13.5px] text-amber-700">
                     {importResult.skipped.length} rows skipped
-                    <ul className="mt-2 space-y-1 text-xs">
+                    <ul className="mt-2 space-y-1 text-[12px]">
                       {importResult.skipped.slice(0, 10).map((s) => (
                         <li key={s.row}>Row {s.row}: {s.reason}</li>
                       ))}
@@ -907,7 +894,7 @@ export default function LeadsPage() {
                 )}
                 <button
                   onClick={closeImport}
-                  className="w-full bg-black text-white py-2 rounded-lg text-sm hover:bg-slate-800 transition-colors"
+                  className="w-full bg-zinc-900 text-white py-2.5 rounded-xl text-[13px] font-medium hover:bg-zinc-700 active:scale-[0.97] transition-all"
                 >
                   Done
                 </button>
