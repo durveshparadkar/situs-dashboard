@@ -25,7 +25,10 @@ import { formatCurrency, useOrgCurrency } from "@/lib/currency";
    Spacing follows an 8pt grid throughout this page: the outer
    container uses py-8/px-6 (32px/24px) and every section gap below
    is gap-6 / space-y-6 (24px) so vertical and horizontal rhythm
-   match consistently — no mismatched gap-5/gap-6 sizes. */
+   match consistently. Palette and Card language now match every
+   other page in the app (Settings, Alerts, Analytics, Forecast,
+   Pipeline, Deals, Leads) — zinc neutrals, rounded-2xl, subtle
+   hover lift. */
 
 const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
@@ -42,8 +45,7 @@ const Card = ({
     initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.25, ease: "easeOut" }}
-    whileHover={{ y: -2 }}
-    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
+    className={`rounded-2xl border border-zinc-100 bg-white transition-all duration-200 hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)] p-5 ${className}`}
   >
     {children}
   </motion.div>
@@ -357,19 +359,19 @@ export default function DashboardPage() {
     return (
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         <div className="space-y-2 animate-pulse">
-          <div className="h-7 w-48 bg-slate-200 rounded-md" />
-          <div className="h-4 w-72 bg-slate-100 rounded-md" />
+          <div className="h-8 w-48 bg-zinc-100 rounded-lg" />
+          <div className="h-4 w-72 bg-zinc-100 rounded-lg" />
         </div>
-        <div className="h-20 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="h-20 bg-zinc-50 rounded-2xl animate-pulse" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
-              className="h-24 bg-slate-100 rounded-2xl animate-pulse"
+              className="h-24 bg-zinc-50 rounded-2xl animate-pulse"
             />
           ))}
         </div>
-        <div className="h-40 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="h-40 bg-zinc-50 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -379,12 +381,12 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <Card className="border-red-200 bg-red-50/60">
-          <h2 className="text-lg font-semibold text-red-700">
+        <Card className="border-red-100 bg-red-50/50">
+          <h2 className="text-[16px] font-semibold text-red-700">
             Unable to load intelligence
           </h2>
-          <p className="text-sm text-red-600 mt-1.5">{error}</p>
-          <p className="text-xs text-red-500/80 mt-3">
+          <p className="text-[13.5px] text-red-600 mt-1.5">{error}</p>
+          <p className="text-[12px] text-red-500/80 mt-3">
             Check that the backend is running and you&apos;re signed in.
           </p>
         </Card>
@@ -400,18 +402,18 @@ export default function DashboardPage() {
     <>
       <PageContainer>
 
-        {/* HEADER */}
+        {/* HEADER — same 28px/14px scale as every other page in the app */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            <h1 className="text-[28px] font-semibold text-zinc-900 tracking-tight">
               Dashboard
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <p className="text-[14px] text-zinc-400 mt-1">
               AI-powered revenue overview
             </p>
           </div>
 
-          <div className="text-xs font-mono tabular-nums text-slate-500 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+          <div className="text-[12.5px] font-mono tabular-nums text-zinc-500 bg-zinc-50 border border-zinc-200 px-3 py-1.5 rounded-xl">
             {mounted ? new Date(now).toLocaleTimeString() : "--:--"}
           </div>
         </div>
@@ -480,8 +482,8 @@ export default function DashboardPage() {
 
         {/* PIPELINE LEAK ALERT */}
         {headlineLeak && (
-          <Card className="border-amber-200 bg-amber-50/50">
-            <p className="text-sm text-amber-700">
+          <Card className="border-amber-100 bg-amber-50/50">
+            <p className="text-[13.5px] text-amber-700">
               {headlineLeak.message}
             </p>
           </Card>
