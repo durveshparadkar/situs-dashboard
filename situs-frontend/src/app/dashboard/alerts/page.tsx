@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Bell } from "lucide-react";
+import { ArrowLeft, Bell, Check, Clock, CheckCircle2 } from "lucide-react";
 import MetricCard from "../../../components/dashboard/metric-card";
 import toast from "react-hot-toast";
 
@@ -92,6 +92,9 @@ function mapBackendAlert(a: BackendAlert): RevenueAlert {
 
 /* ================= HELPERS ================= */
 
+/* Severity styling — kept as a distinct, high-contrast badge (Von
+   Restorff Effect) so critical items are unmistakable even when
+   scanning quickly, not just reading carefully. */
 function getSeverityStyle(severity: AlertSeverity) {
   switch (severity) {
     case "critical":
@@ -114,6 +117,30 @@ function getSeverityDot(severity: AlertSeverity) {
   }
 }
 
+function getSeverityRing(severity: AlertSeverity) {
+  switch (severity) {
+    case "critical":
+      return "ring-red-100";
+    case "watch":
+      return "ring-amber-100";
+    default:
+      return "ring-emerald-100";
+  }
+}
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/* Same Card primitive language as Settings: rounded-2xl, subtle
+   hover lift (Aesthetic-Usability Effect) — the whole app should
+   feel like one coherent product, not several bolted together. */
 const Card = ({
   children,
   className = "",
@@ -125,8 +152,7 @@ const Card = ({
     initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.25, ease: "easeOut" }}
-    whileHover={{ y: -2 }}
-    className={`rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200 p-5 ${className}`}
+    className={`rounded-2xl border border-zinc-100 bg-white transition-all duration-200 hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)] ${className}`}
   >
     {children}
   </motion.div>
@@ -146,6 +172,11 @@ export default function AlertsPage() {
   const [connected, setConnected] = useState(false);
 
   const [now, setNow] = useState<number>(() => Date.now());
+
+  /* Tracks which alert just got an action, purely for the brief
+     confirmation flash (Peak-End Rule) — the row visibly acknowledges
+     the click before settling into its new state. */
+  const [justActioned, setJustActioned] = useState<{ id: string; kind: "ack" | "resolve" | "snooze" } | null>(null);
 
   /* ================= CLOCK ================= */
 
@@ -187,7 +218,13 @@ export default function AlertsPage() {
     );
   };
 
+  const flashAction = (id: string, kind: "ack" | "resolve" | "snooze") => {
+    setJustActioned({ id, kind });
+    setTimeout(() => setJustActioned((cur) => (cur?.id === id ? null : cur)), 900);
+  };
+
   const handleAck = async (a: RevenueAlert) => {
+    flashAction(a.id, "ack");
     updateStatusLocal(a, "acknowledged");
     toast.success("Acknowledged");
     try {
@@ -198,6 +235,7 @@ export default function AlertsPage() {
   };
 
   const handleResolve = async (a: RevenueAlert) => {
+    flashAction(a.id, "resolve");
     updateStatusLocal(a, "resolved");
     toast.success("Resolved");
     try {
@@ -208,6 +246,7 @@ export default function AlertsPage() {
   };
 
   const handleSnooze = (a: RevenueAlert) => {
+    flashAction(a.id, "snooze");
     /* Snooze is client-side only — backend has no snooze concept */
     const until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
@@ -245,18 +284,18 @@ export default function AlertsPage() {
     return (
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         <div className="space-y-2 animate-pulse">
-          <div className="h-4 w-16 bg-slate-200 rounded-md" />
-          <div className="h-8 w-56 bg-slate-200 rounded-md" />
+          <div className="h-4 w-16 bg-zinc-100 rounded-lg" />
+          <div className="h-8 w-56 bg-zinc-100 rounded-lg" />
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(3)].map((_, i) => (
             <div
               key={i}
-              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+              className="h-20 bg-zinc-50 rounded-2xl animate-pulse"
             />
           ))}
         </div>
-        <div className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
+        <div className="h-64 bg-zinc-50 rounded-2xl animate-pulse" />
       </div>
     );
   }
@@ -266,28 +305,30 @@ export default function AlertsPage() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
 
-      {/* HEADER */}
+      {/* HEADER — same type scale as Settings (28px title, 14px
+          subtext) so the whole app reads as one voice, not several
+          different products stitched together. */}
       <div className="flex justify-between items-center">
         <div>
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
+            className="flex items-center gap-2 text-[13px] text-zinc-400 hover:text-zinc-900 transition-colors mb-2 group"
           >
-            <ArrowLeft size={16} /> Back
+            <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" /> Back
           </button>
 
-          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+          <h1 className="text-[28px] font-semibold text-zinc-900 tracking-tight">
             Alerts Intelligence
           </h1>
 
-          <p className="text-xs mt-1.5 flex items-center gap-1.5">
+          <p className="text-[13px] mt-1.5 flex items-center gap-1.5">
             {connected ? (
-              <span className="text-emerald-600 flex items-center gap-1.5">
+              <span className="text-emerald-600 flex items-center gap-1.5 font-medium">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Live
               </span>
             ) : (
-              <span className="text-red-500 flex items-center gap-1.5">
+              <span className="text-red-500 flex items-center gap-1.5 font-medium">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
                 Reconnecting...
               </span>
@@ -299,12 +340,12 @@ export default function AlertsPage() {
         <div className="relative">
           <button
             onClick={() => setShowPanel((p) => !p)}
-            className="relative p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-colors"
+            className="relative p-2.5 rounded-xl hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 active:scale-95 transition-all"
           >
             <Bell size={18} />
 
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] px-1.5 rounded-full">
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-medium px-1.5 rounded-full min-w-[16px] text-center">
                 {unreadCount}
               </span>
             )}
@@ -317,17 +358,17 @@ export default function AlertsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 6 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-3 z-50"
+                className="absolute right-0 mt-2 w-72 bg-white border border-zinc-100 rounded-2xl shadow-lg p-3 z-50"
               >
                 {notifications.length === 0 ? (
-                  <div className="p-2 text-sm text-slate-400 text-center">
+                  <div className="p-3 text-[13px] text-zinc-400 text-center">
                     No notifications
                   </div>
                 ) : (
                   notifications.map((n) => (
                     <div
                       key={n._id}
-                      className="p-2 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                      className="p-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 rounded-xl transition-colors"
                     >
                       {n.title}
                     </div>
@@ -341,7 +382,7 @@ export default function AlertsPage() {
 
       {/* METRICS */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Card>
+        <Card className="p-5">
           <MetricCard
             title="Critical"
             value={String(
@@ -349,7 +390,7 @@ export default function AlertsPage() {
             )}
           />
         </Card>
-        <Card>
+        <Card className="p-5">
           <MetricCard
             title="Watch"
             value={String(
@@ -357,7 +398,7 @@ export default function AlertsPage() {
             )}
           />
         </Card>
-        <Card>
+        <Card className="p-5">
           <MetricCard
             title="Revenue Risk"
             value={formatCurrency(
@@ -372,81 +413,101 @@ export default function AlertsPage() {
       <Card className="p-0 overflow-hidden">
         {visibleAlerts.length === 0 ? (
           <div className="p-16 text-center">
-            <p className="text-slate-500 text-sm">No active alerts</p>
-            <p className="text-slate-400 text-xs mt-1">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 size={22} className="text-emerald-500" />
+            </div>
+            <p className="text-zinc-900 text-[14px] font-medium">No active alerts</p>
+            <p className="text-zinc-400 text-[13px] mt-1">
               You&apos;ll see critical and watch signals here as they&apos;re detected
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {visibleAlerts.map((alert) => (
-              <div
-                key={alert.id}
-                className="p-5 flex justify-between gap-4 hover:bg-slate-50/60 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+          <div className="divide-y divide-zinc-100">
+            {visibleAlerts.map((alert) => {
+              const isFlashing = justActioned?.id === alert.id;
+              return (
+                <motion.div
+                  key={alert.id}
+                  animate={
+                    isFlashing
+                      ? { backgroundColor: ["rgba(16,185,129,0.06)", "rgba(255,255,255,0)"] }
+                      : {}
+                  }
+                  transition={{ duration: 0.9 }}
+                  className="p-5 flex justify-between gap-4 hover:bg-zinc-50/60 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full shrink-0 ring-4 ${getSeverityDot(
+                          alert.severity
+                        )} ${getSeverityRing(alert.severity)}`}
+                      />
+                      <p className="font-medium text-zinc-900 text-[14.5px]">{alert.title}</p>
+                    </div>
+
                     <span
-                      className={`h-2 w-2 rounded-full shrink-0 ${getSeverityDot(
+                      className={`inline-block mt-2.5 text-[11px] font-medium px-2.5 py-1 rounded-full border ${getSeverityStyle(
                         alert.severity
                       )}`}
-                    />
-                    <p className="font-medium text-slate-900">{alert.title}</p>
+                    >
+                      {alert.severity}
+                    </span>
+
+                    <p className="text-[13.5px] text-zinc-600 mt-2.5 leading-relaxed">{alert.message}</p>
+
+                    <div className="flex items-center gap-3 mt-2.5">
+                      <p className="text-[12px] text-zinc-400">
+                        AI Score: <span className="font-medium text-zinc-500">{alert.riskScore}</span>
+                      </p>
+                      {alert.aiReason && (
+                        <>
+                          <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                          <p className="text-[12px] text-zinc-400">
+                            {alert.aiReason}
+                          </p>
+                        </>
+                      )}
+                      <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                      <p className="text-[12px] text-zinc-400 flex items-center gap-1">
+                        <Clock size={11} />
+                        {timeAgo(alert.detectedAt)}
+                      </p>
+                    </div>
                   </div>
 
-                  <span
-                    className={`inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full border ${getSeverityStyle(
-                      alert.severity
-                    )}`}
-                  >
-                    {alert.severity}
-                  </span>
-
-                  <p className="text-sm text-slate-600 mt-2">{alert.message}</p>
-
-                  <div className="flex items-center gap-3 mt-2">
-                    <p className="text-xs text-slate-400">
-                      AI Score: {alert.riskScore}
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    <p className="font-semibold text-zinc-900 tabular-nums text-[14.5px]">
+                      {formatCurrency(alert.impact, currency)}
                     </p>
-                    {alert.aiReason && (
-                      <>
-                        <span className="h-1 w-1 rounded-full bg-slate-300" />
-                        <p className="text-xs text-slate-400">
-                          {alert.aiReason}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
 
-                <div className="flex flex-col items-end gap-3 shrink-0">
-                  <p className="font-medium text-slate-900 tabular-nums">
-                    {formatCurrency(alert.impact, currency)}
-                  </p>
-
-                  <div className="flex gap-2 text-xs">
-                    <button
-                      onClick={() => handleAck(alert)}
-                      className="border border-slate-200 px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
-                    >
-                      Ack
-                    </button>
-                    <button
-                      onClick={() => handleSnooze(alert)}
-                      className="border border-slate-200 px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
-                    >
-                      Snooze
-                    </button>
-                    <button
-                      onClick={() => handleResolve(alert)}
-                      className="bg-black text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
-                    >
-                      Resolve
-                    </button>
+                    <div className="flex gap-2 text-[12.5px]">
+                      <button
+                        onClick={() => handleAck(alert)}
+                        className="flex items-center gap-1 border border-zinc-200 px-3 py-1.5 rounded-xl font-medium text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 active:scale-95 transition-all"
+                      >
+                        {isFlashing && justActioned?.kind === "ack" ? (
+                          <Check size={12} className="text-emerald-500" />
+                        ) : null}
+                        Ack
+                      </button>
+                      <button
+                        onClick={() => handleSnooze(alert)}
+                        className="border border-zinc-200 px-3 py-1.5 rounded-xl font-medium text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 active:scale-95 transition-all"
+                      >
+                        Snooze
+                      </button>
+                      <button
+                        onClick={() => handleResolve(alert)}
+                        className="bg-zinc-900 text-white px-3 py-1.5 rounded-xl font-medium hover:bg-zinc-700 active:scale-95 transition-all"
+                      >
+                        Resolve
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </Card>
