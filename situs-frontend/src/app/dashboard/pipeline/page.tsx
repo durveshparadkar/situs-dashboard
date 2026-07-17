@@ -36,6 +36,7 @@ const PageContainer = ({ children }: { children: ReactNode }) => (
   <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">{children}</div>
 );
 
+/* Same Card language as Settings/Alerts/Analytics/Forecast */
 const Card = ({
   children,
   className = "",
@@ -47,7 +48,7 @@ const Card = ({
     initial={{ opacity: 0, y: 6 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.25, ease: "easeOut" }}
-    className={`rounded-2xl border border-slate-200 bg-white shadow-sm p-4 ${className}`}
+    className={`rounded-2xl border border-zinc-100 bg-white transition-all duration-200 p-4 ${className}`}
   >
     {children}
   </motion.div>
@@ -93,9 +94,11 @@ const stages: Stage[] = [
   "Won",
 ];
 
-/* Subtle accent color per column — purely visual, doesn't touch logic */
+/* Column accent dots keep distinct hues per stage (these carry real
+   meaning — progression through the funnel — so they stay colorful
+   even on an otherwise neutral zinc page). */
 const stageAccent: Record<Stage, string> = {
-  Leads: "bg-slate-400",
+  Leads: "bg-zinc-400",
   Qualified: "bg-blue-400",
   Proposal: "bg-amber-400",
   Negotiation: "bg-purple-400",
@@ -105,10 +108,6 @@ const stageAccent: Record<Stage, string> = {
 const isStage = (v: unknown): v is Stage =>
   typeof v === "string" && stages.includes(v as Stage);
 
-/* Map backend stage NAME → visual column.
-   Backend pipeline uses: DISCOVERY, QUALIFICATION, PROPOSAL_SENT,
-   NEGOTIATION, VERBAL_COMMIT, CONTRACT_SENT, WON, LOST. We fold the
-   later-funnel stages into "Negotiation" so the 5-column UI is preserved. */
 function backendStageNameToColumn(name: string): Stage {
   const n = name.toUpperCase();
   if (n === "DISCOVERY") return "Leads";
@@ -117,7 +116,6 @@ function backendStageNameToColumn(name: string): Stage {
   if (n === "NEGOTIATION" || n === "VERBAL_COMMIT" || n === "CONTRACT_SENT")
     return "Negotiation";
   if (n === "WON") return "Won";
-  /* LOST and anything unknown default to Leads so deals never disappear */
   return "Leads";
 }
 
@@ -147,6 +145,15 @@ function calculateAI(deal: Deal) {
   };
 }
 
+/* Bar color reflects risk level — same green/amber/red health signal
+   used for severity elsewhere in the app, so a glance at the Pipeline
+   board tells you which deals need attention without reading numbers. */
+function riskBarColor(risk: number): string {
+  if (risk >= 70) return "bg-red-400";
+  if (risk >= 40) return "bg-amber-400";
+  return "bg-emerald-500";
+}
+
 /* ================= DEAL CARD ================= */
 
 function DealCard({
@@ -172,7 +179,7 @@ function DealCard({
     disabled: dragOverlay,
   });
 
-  const { probability } = calculateAI(deal);
+  const { probability, risk } = calculateAI(deal);
 
   return (
     <motion.div
@@ -190,22 +197,24 @@ function DealCard({
         e.stopPropagation();
         onClick?.();
       }}
-      className={`bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-slate-300 transition-all cursor-grab active:cursor-grabbing ${
+      className={`bg-white border border-zinc-100 rounded-xl p-4 hover:border-zinc-200 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all cursor-grab active:cursor-grabbing ${
         dragOverlay ? "shadow-lg rotate-1" : ""
       }`}
     >
-      <p className="text-sm font-semibold text-slate-900 truncate">
+      <p className="text-[13.5px] font-medium text-zinc-900 truncate">
         {deal.title || "Untitled"}
       </p>
 
-      <p className="text-xs text-slate-500 mt-1 tabular-nums">
+      <p className="text-[12px] text-zinc-500 mt-1 tabular-nums">
         {formatCurrency(Number(deal.value ?? 0), currency)}
       </p>
 
-      <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-black rounded-full transition-all"
-          style={{ width: `${probability}%` }}
+      <div className="mt-3 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${probability}%` }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
+          className={`h-full rounded-full ${riskBarColor(risk)}`}
         />
       </div>
     </motion.div>
@@ -231,15 +240,15 @@ function Column({
     <div className="w-[300px] shrink-0">
       <Card
         className={`transition-all duration-150 ${
-          isOver ? "ring-2 ring-black/10 bg-slate-50 border-slate-300" : ""
+          isOver ? "ring-2 ring-zinc-900/10 bg-zinc-50 border-zinc-200" : ""
         }`}
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${stageAccent[stage]}`} />
-            <p className="text-sm font-semibold text-slate-900">{stage}</p>
+            <p className="text-[13.5px] font-semibold text-zinc-900">{stage}</p>
           </div>
-          <span className="text-xs bg-slate-900 text-white px-2 py-0.5 rounded-full tabular-nums">
+          <span className="text-[11px] bg-zinc-900 text-white px-2 py-0.5 rounded-full tabular-nums font-medium">
             {deals.length}
           </span>
         </div>
@@ -248,9 +257,9 @@ function Column({
           items={deals.map((d) => d._id)}
           strategy={verticalListSortingStrategy}
         >
-          <div ref={setNodeRef} className="space-y-3 min-h-[200px]">
+          <div ref={setNodeRef} className="space-y-2.5 min-h-[200px]">
             {deals.length === 0 ? (
-              <div className="text-xs text-center text-slate-400 py-10 border border-dashed border-slate-200 rounded-lg">
+              <div className="text-[12px] text-center text-zinc-400 py-10 border border-dashed border-zinc-200 rounded-xl">
                 No deals yet
               </div>
             ) : (
@@ -281,13 +290,10 @@ export default function PipelinePage() {
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
 
-  /* Map of visual column → backend stage ObjectId, built from the
-     default pipeline. Used when a drag needs to PATCH a deal's stageId. */
   const [columnToStageId, setColumnToStageId] = useState<Record<Stage, string>>(
     {} as Record<Stage, string>
   );
 
-  /* Map of backend stageId → visual column, for grouping loaded deals. */
  const [, setStageIdToColumn] = useState<Record<string, Stage>>(
   {}
 );
@@ -301,9 +307,8 @@ export default function PipelinePage() {
       try {
         setLoading(true);
 
-        /* 1. Fetch the default pipeline to learn real stages + their IDs */
         const idToCol: Record<string, Stage> = {};
-const colToId: Record<Stage, string> = {} as Record<Stage, string>;
+        const colToId: Record<Stage, string> = {} as Record<Stage, string>;
 
         try {
           const pipeRes = await apiFetch<{ success: boolean; data: BackendPipeline }>(
@@ -314,7 +319,6 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
             for (const st of pipeline.stages) {
               const col = backendStageNameToColumn(st.name);
               idToCol[st._id] = col;
-              /* First stageId we see for a column wins as the drop target */
               if (!colToId[col]) colToId[col] = st._id;
             }
           }
@@ -327,14 +331,12 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
           setColumnToStageId(colToId);
         }
 
-        /* 2. Fetch deals from the backend */
         const dealRes = await apiFetch<{ success: boolean; data: Deal[] }>(
           "/api/deals?limit=100"
         );
 
         const raw = Array.isArray(dealRes?.data) ? dealRes.data : [];
 
-        /* 3. Derive each deal's visual column from its backend stageId */
         const mapped: Deal[] = raw.map((d) => {
           const sid = (d as { stageId?: string }).stageId
             ? String((d as { stageId?: string }).stageId)
@@ -408,14 +410,11 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
     let newStage: Stage = current.stage ?? "Leads";
     if (isStage(overId)) newStage = overId;
 
-    /* Optimistic UI update — move the card immediately */
     const updated = deals.map((d) =>
       d._id === activeId ? { ...d, stage: newStage } : d
     );
     setDeals(updated);
 
-    /* Resolve the backend stageId for the target column. If we don't
-       have one (no pipeline loaded), skip the PATCH — UI still moved. */
     const targetStageId = columnToStageId[newStage];
     if (!targetStageId) return;
 
@@ -443,14 +442,14 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
     return (
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         <div className="space-y-2 animate-pulse">
-          <div className="h-4 w-16 bg-slate-200 rounded-md" />
-          <div className="h-7 w-40 bg-slate-200 rounded-md" />
+          <div className="h-4 w-16 bg-zinc-100 rounded-lg" />
+          <div className="h-7 w-40 bg-zinc-100 rounded-lg" />
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[...Array(3)].map((_, i) => (
             <div
               key={i}
-              className="h-20 bg-slate-100 rounded-2xl animate-pulse"
+              className="h-20 bg-zinc-50 rounded-2xl animate-pulse"
             />
           ))}
         </div>
@@ -458,7 +457,7 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
           {stages.map((s) => (
             <div
               key={s}
-              className="w-[300px] shrink-0 h-72 bg-slate-100 rounded-2xl animate-pulse"
+              className="w-[300px] shrink-0 h-72 bg-zinc-50 rounded-2xl animate-pulse"
             />
           ))}
         </div>
@@ -479,23 +478,29 @@ const colToId: Record<Stage, string> = {} as Record<Stage, string>;
           <div>
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-2"
+              className="flex items-center gap-2 text-[13px] text-zinc-400 hover:text-zinc-900 transition-colors mb-2 group"
             >
-              <ArrowLeft size={16} /> Back
+              <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" /> Back
             </button>
 
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            <h1 className="text-[28px] font-semibold text-zinc-900 tracking-tight">
               Pipeline
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <p className="text-[14px] text-zinc-400 mt-1">
               Drag deals between stages to update their progress
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <Card><MetricCard title="Deals" value={deals.length.toString()} /></Card>
-            <Card><MetricCard title="Pipeline Value" value={formatCurrency(pipelineValue, currency)} /></Card>
-            <Card><MetricCard title="At Risk" value={dealsAtRisk.toString()} /></Card>
+            <Card className="hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)]">
+              <MetricCard title="Deals" value={deals.length.toString()} />
+            </Card>
+            <Card className="hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)]">
+              <MetricCard title="Pipeline Value" value={formatCurrency(pipelineValue, currency)} />
+            </Card>
+            <Card className={dealsAtRisk > 0 ? "border-red-100 hover:border-red-200" : "hover:border-zinc-200 hover:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.06)]"}>
+              <MetricCard title="At Risk" value={dealsAtRisk.toString()} />
+            </Card>
           </div>
 
           <div className="flex gap-5 overflow-x-auto pb-2 -mx-1 px-1">
