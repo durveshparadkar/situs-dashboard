@@ -164,7 +164,7 @@ export default function Hero() {
           <p className="t-lead" style={{ fontSize: 19, maxWidth: 560 }}>
             Monitor pipeline health, forecast revenue, detect risks, and uncover
             growth opportunities — from a single intelligence platform built for
-            the Indian market.
+            revenue teams worldwide. Native support for USD, EUR, GBP &amp; INR.
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export default function Hero() {
             ))}
           </div>
           <span style={{ fontSize: 13, color: "var(--t-tertiary)", fontWeight: 500 }}>
-            Trusted by early revenue teams across India ·{" "}
+            Trusted by early revenue teams worldwide ·{" "}
             <span style={{ color: "var(--t-secondary)", fontWeight: 600 }}>Beta cohort filling fast</span>
           </span>
         </div>
@@ -273,9 +273,9 @@ export default function Hero() {
                 {/* Stat cards */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                   {[
-                    { label: "Pipeline Value", value: "₹4.2Cr", delta: "↑ 12%",    up: true  },
+                    { label: "Pipeline Value", value: "$520K",  delta: "↑ 12%",    up: true  },
                     { label: "Win Rate",        value: "38%",    delta: "↓ -3pts",  up: false },
-                    { label: "Forecast Q3",     value: "₹1.8Cr", delta: "On track", up: true  },
+                    { label: "Forecast Q3",     value: "$218K",  delta: "On track", up: true  },
                   ].map((m) => (
                     <div key={m.label} style={{
                       background: "#fff", borderRadius: "var(--r-md)",

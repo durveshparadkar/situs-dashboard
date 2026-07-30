@@ -1,5 +1,25 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   PDF REPORTS — dark showcase section
+   UX laws applied (annotated inline):
+   • Von Restorff        — only full-dark section on the page;
+                           the report artifact is the hero
+   • Jakob's Law         — report mockup mirrors a real document
+                           (header, rows, summary, footer)
+   • Miller's Law        — 5 report rows, 4 benefits, 3 AI lines
+   • Law of Common Region — report framed as one bordered artifact
+   • Serial Position     — AI summary last inside the mockup =
+                           the takeaway users remember
+   • Goal-Gradient       — rows populate sequentially like a
+                           report being generated live
+   • Aesthetic-Usability — glow, grain, gradient accent
+   • Doherty Threshold   — "Generated in 1.2s" copy reinforces
+                           perceived speed
+   • Postel's Law        — reduced-motion: rows render instantly
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 import { DEMO_URL } from "./shared/constants";
 
@@ -20,9 +40,58 @@ const BENEFITS = [
 
 const AI_SUMMARY = [
   "3 enterprise deals require executive intervention",
-  "Forecast revised upward by ₹22L based on new signals",
+  "Forecast revised upward by $28K based on new signals",
   "Recommended: compress Q3 pipeline review cycle",
 ];
+
+/* Report row — populates sequentially, like the report is being generated */
+function ReportRow({ row, i, total }: { row: (typeof REPORT_ROWS)[number]; i: number; total: number }) {
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (visible) {
+      return;
+    }
+
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.3 }
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [visible]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        display: "flex", justifyContent: "space-between",
+        alignItems: "center", padding: "15px 28px",
+        borderBottom: i < total - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+        transition: `background var(--speed-fast) var(--ease), opacity 0.4s var(--ease) ${i * 110}ms, transform 0.4s var(--ease) ${i * 110}ms`,
+        opacity: `${visible ? 1 : 0}`,
+        transform: visible ? "translateY(0)" : "translateY(6px)",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>
+        {row.label}
+      </span>
+      <span style={{
+        fontSize: 12, fontWeight: 700, color: row.color,
+        background: `${row.color}18`, border: `1px solid ${row.color}25`,
+        padding: "4px 12px", borderRadius: 100,
+      }}>
+        {row.value}
+      </span>
+    </div>
+  );
+}
 
 export default function PdfReports() {
   return (
@@ -173,35 +242,14 @@ export default function PdfReports() {
                 </span>
               </div>
 
-              {/* Rows */}
+              {/* Rows — populate sequentially (Goal-Gradient: live generation) */}
               <div style={{ padding: "10px 0" }}>
                 {REPORT_ROWS.map((row, i) => (
-                  <div
-                    key={row.label}
-                    style={{
-                      display: "flex", justifyContent: "space-between",
-                      alignItems: "center", padding: "15px 28px",
-                      borderBottom: i < REPORT_ROWS.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                      transition: "background var(--speed-fast) var(--ease)",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>
-                      {row.label}
-                    </span>
-                    <span style={{
-                      fontSize: 12, fontWeight: 700, color: row.color,
-                      background: `${row.color}18`, border: `1px solid ${row.color}25`,
-                      padding: "4px 12px", borderRadius: 100,
-                    }}>
-                      {row.value}
-                    </span>
-                  </div>
+                  <ReportRow key={row.label} row={row} i={i} total={REPORT_ROWS.length} />
                 ))}
               </div>
 
-              {/* AI summary */}
+              {/* AI summary — Serial Position: the last thing read = takeaway */}
               <div style={{
                 margin: "0 20px 20px",
                 background: "linear-gradient(135deg, rgba(99,102,241,0.08), transparent)",

@@ -1,5 +1,26 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   INTEGRATIONS — marquee + benefits
+   UX laws applied (annotated inline):
+   • Jakob's Law         — familiar logo-marquee pattern signals
+                           "established ecosystem" instantly
+   • Tesler's Law        — "no rip & replace" copy absorbs the
+                           complexity of integration for the user
+   • Law of Continuity   — opposing marquee directions imply an
+                           always-moving, living data flow
+   • Miller's Law        — 3 benefits, chunked
+   • Law of Similarity   — benefit cards share Product/Security
+                           interaction language (lift + icon tilt)
+   • Fitts's Law         — whole marquee row is the pause target
+   • Aesthetic-Usability — pause-on-hover, chip lift, edge fades
+   • Doherty Threshold   — sub-400ms transitions
+   • Zeigarnik Effect    — "Planned integrations" pulse keeps an
+                           open loop → return visits
+   • Postel's Law        — reduced-motion: marquee stops
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 import { INTEGRATIONS } from "./shared/constants";
 
@@ -11,6 +32,21 @@ const BENEFITS = [
 
 /* One marquee row. Second copy of the list is aria-hidden (screen readers hear it once). */
 function MarqueeRow({ reverse = false, raised = false }: { reverse?: boolean; raised?: boolean }) {
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    return typeof window !== "undefined" ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setReducedMotion(e.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
   return (
     <div
       style={{ position: "relative", marginBottom: 16, overflow: "hidden" }}
@@ -37,7 +73,10 @@ function MarqueeRow({ reverse = false, raised = false }: { reverse?: boolean; ra
         data-track
         style={{
           display: "flex", gap: 16, width: "max-content",
-          animation: `marquee ${reverse ? "35s" : "30s"} linear infinite${reverse ? " reverse" : ""}`,
+          /* Postel — reduced motion: marquee simply doesn't run */
+          animation: reducedMotion
+            ? "none"
+            : `marquee ${reverse ? "35s" : "30s"} linear infinite${reverse ? " reverse" : ""}`,
         }}
       >
         {[0, 1].map((copy) => (
@@ -56,6 +95,17 @@ function MarqueeRow({ reverse = false, raised = false }: { reverse?: boolean; ra
                   borderRadius: 14, padding: "16px 28px",
                   boxShadow: raised ? "none" : "var(--shadow-sm)",
                   whiteSpace: "nowrap",
+                  transition: "transform 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-3px)";
+                  e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)";
+                  e.currentTarget.style.boxShadow = "0 8px 24px rgba(99,102,241,0.12)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.borderColor = "var(--s-border)";
+                  e.currentTarget.style.boxShadow = raised ? "none" : "var(--shadow-sm)";
                 }}
               >
                 <div aria-hidden="true" style={{
@@ -111,14 +161,15 @@ export default function Integrations() {
               <span className="gradient-text">entire revenue stack</span>
             </h2>
             <p className="t-lead" style={{ fontSize: 17 }}>
-              Situs sits on top of your existing tools.
-              No ripping and replacing — just intelligence on top.
+              Situs sits on top of the tools your team already uses —
+              wherever you run revenue. No ripping and replacing,
+              just intelligence on top.
             </p>
           </div>
         </Reveal>
       </div>
 
-      {/* ── Marquees (pause on hover) ── */}
+      {/* ── Marquees (pause on hover, opposing directions = Continuity) ── */}
       <Reveal delay={100}>
         <MarqueeRow />
       </Reveal>
@@ -128,7 +179,7 @@ export default function Integrations() {
 
       <div style={{ maxWidth: "var(--container)", margin: "0 auto", padding: "0 var(--gutter)", position: "relative" }}>
 
-        {/* Coming soon */}
+        {/* Coming soon — Zeigarnik: open loop invites return visits */}
         <Reveal delay={150}>
           <div style={{
             display: "flex", alignItems: "center",
@@ -152,26 +203,35 @@ export default function Integrations() {
           }}>
             {BENEFITS.map((item) => (
               <div
-                key={item.title}
+                key={`item.title}`}
                 className="card"
                 style={{ padding: "32px 28px", position: "relative", overflow: "hidden" }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "translateY(-4px)";
                   e.currentTarget.style.borderColor = `${item.accent}30`;
                   e.currentTarget.style.boxShadow = `0 16px 40px ${item.accent}12`;
+                  const icon = e.currentTarget.querySelector<HTMLElement>("[data-icon]");
+                  if (icon) icon.style.transform = "scale(1.08) rotate(-3deg)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = "translateY(0)";
                   e.currentTarget.style.borderColor = "var(--s-border)";
                   e.currentTarget.style.boxShadow = "none";
+                  const icon = e.currentTarget.querySelector<HTMLElement>("[data-icon]");
+                  if (icon) icon.style.transform = "scale(1) rotate(0deg)";
                 }}
               >
-                <div aria-hidden="true" style={{
-                  width: 46, height: 46,
-                  background: `${item.accent}12`, border: `1px solid ${item.accent}25`,
-                  borderRadius: "var(--r-md)", display: "flex", alignItems: "center",
-                  justifyContent: "center", fontSize: 20, marginBottom: 18,
-                }}>
+                <div
+                  aria-hidden="true"
+                  data-icon
+                  style={{
+                    width: `46px`, height: `46px`,
+                    background: `${item.accent}12`, border: "1px solid " + `${item.accent}25`,
+                    borderRadius: "var(--r-md)", display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 20, marginBottom: 18,
+                    transition: "transform 0.3s cubic-bezier(.34,1.56,.64,1)",
+                  }}
+                >
                   {item.icon}
                 </div>
                 <h3 style={{

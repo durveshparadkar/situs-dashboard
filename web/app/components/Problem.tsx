@@ -1,5 +1,23 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   PROBLEM — chaos → unity narrative
+   UX laws applied (annotated inline):
+   • Serial Position     — problem stated first, Situs layer last
+   • Law of Proximity    — pain points grouped; tools grouped
+   • Law of Common Region — siloed tools vs unified dark layer
+   • Law of Continuity   — vertical flow connector guides the eye
+                           from chaos down into Situs
+   • Von Restorff        — the one dark card = the answer
+   • Miller's Law        — 3 pain points, 5 tools (scannable)
+   • Aesthetic-Usability — staggered motion, glow, pulse
+   • Doherty Threshold   — sub-400ms transitions
+   • Zeigarnik Effect    — "Siloed" badges create unresolved
+                           tension the Situs layer resolves
+   • Postel's Law        — reduced-motion respected
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 
 const TOOLS = [
@@ -15,6 +33,71 @@ const PAIN_POINTS = [
   { title: "Decisions without full context", desc: "By the time you piece it together, the moment has passed." },
   { title: "Deals lost to invisible risks",  desc: "The warning signs were there — scattered across tools no one checks." },
 ];
+
+/* Staggered slide-in for the siloed tool cards */
+function SiloedTool({ tool, index }: { tool: (typeof TOOLS)[number]; index: number }) {
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // schedule state change to avoid synchronous setState inside effect
+      const id = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(id);
+    }
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.25 }
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        background: "#fff", border: "1px solid var(--s-border)",
+        borderRadius: "var(--r-md)", padding: "14px 18px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        boxShadow: "var(--shadow-sm)",
+        opacity: visible ? 0.5 + index * 0.1 : 0,
+        transform: visible
+          ? `translateX(${(2 - Math.abs(2 - index)) * 8}px)`
+          : `translateX(${(2 - Math.abs(2 - index)) * 8 - 16}px)`,
+        transition: `opacity 0.5s var(--ease) ${index * 90}ms, transform 0.5s var(--ease) ${index * 90}ms`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: "var(--s-sunken)", border: "1px solid var(--s-border)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 13, fontWeight: 800, color: "var(--t-tertiary)",
+        }}>
+          {tool.name[0]}
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t-primary)", letterSpacing: "-0.01em" }}>
+            {tool.name}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--t-faint)", fontWeight: 500 }}>
+            {tool.note}
+          </div>
+        </div>
+      </div>
+      {/* Zeigarnik — unresolved "Siloed" tension, resolved below */}
+      <span style={{
+        fontSize: 10, color: "var(--c-red)", fontWeight: 700,
+        background: "#FEF2F2", padding: "4px 10px", borderRadius: 100,
+        letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 4,
+      }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--c-red)" }} />
+        Siloed
+      </span>
+    </div>
+  );
+}
 
 export default function Problem() {
   return (
@@ -66,7 +149,7 @@ export default function Problem() {
             and minutes actually deciding what to do next. That gap is where deals die.
           </p>
 
-          {/* Pain point cards */}
+          {/* Pain point cards — Proximity: one grouped stack */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {PAIN_POINTS.map((p) => (
               <div
@@ -80,10 +163,12 @@ export default function Problem() {
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = "#FECACA";
                   e.currentTarget.style.background = "rgba(239,68,68,0.02)";
+                  e.currentTarget.style.transform = "translateX(4px)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = "#F0F0F0";
                   e.currentTarget.style.background = "#fff";
+                  e.currentTarget.style.transform = "translateX(0)";
                 }}
               >
                 <span aria-hidden="true" style={{
@@ -109,55 +194,18 @@ export default function Problem() {
           </div>
         </Reveal>
 
-        {/* ── Right visual — chaos → unity flow ── */}
+        {/* ── Right visual — chaos → unity flow (Continuity) ── */}
         <Reveal direction="right" delay={100}>
           <div>
 
-            {/* Siloed tools */}
+            {/* Siloed tools — staggered entrance */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 8 }}>
               {TOOLS.map((tool, i) => (
-                <div
-                  key={tool.name}
-                  style={{
-                    background: "#fff", border: "1px solid var(--s-border)",
-                    borderRadius: "var(--r-md)", padding: "14px 18px",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    boxShadow: "var(--shadow-sm)",
-                    opacity: 0.5 + i * 0.1,
-                    transform: `translateX(${(2 - Math.abs(2 - i)) * 8}px)`,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: 8,
-                      background: "var(--s-sunken)", border: "1px solid var(--s-border)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 13, fontWeight: 800, color: "var(--t-tertiary)",
-                    }}>
-                      {tool.name[0]}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t-primary)", letterSpacing: "-0.01em" }}>
-                        {tool.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--t-faint)", fontWeight: 500 }}>
-                        {tool.note}
-                      </div>
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: 10, color: "var(--c-red)", fontWeight: 700,
-                    background: "#FEF2F2", padding: "4px 10px", borderRadius: 100,
-                    letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 4,
-                  }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--c-red)" }} />
-                    Siloed
-                  </span>
-                </div>
+                <SiloedTool key={tool.name} tool={tool} index={i} />
               ))}
             </div>
 
-            {/* Flow connector */}
+            {/* Flow connector — Continuity: eye follows the line down */}
             <div aria-hidden="true" style={{
               display: "flex", flexDirection: "column", alignItems: "center", padding: "12px 0",
             }}>
@@ -174,7 +222,7 @@ export default function Problem() {
               <div style={{ width: 2, height: 24, background: "linear-gradient(to bottom, var(--c-emerald), var(--c-ink))" }} />
             </div>
 
-            {/* Situs layer */}
+            {/* Situs layer — Von Restorff: the one dark card = the answer */}
             <div style={{
               background: "linear-gradient(135deg, var(--c-ink) 0%, var(--c-ink-soft) 100%)",
               borderRadius: "var(--r-lg)", padding: 24,
@@ -229,7 +277,7 @@ export default function Problem() {
                 borderRadius: 10, padding: "12px 14px", position: "relative",
               }}>
                 <div style={{ fontSize: 12, color: "#AAA", lineHeight: 1.6 }}>
-                  → 3 deals at risk · ₹22L forecast upside detected · 6 actions recommended
+                  → 3 deals at risk · $28K forecast upside detected · 6 actions recommended
                 </div>
               </div>
             </div>

@@ -1,5 +1,20 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   NAV — persistent, glassy, progress-aware
+   UX laws applied (annotated inline):
+   • Goal-Gradient       — scroll progress bar shows completion
+   • Jakob's Law         — logo left, links center, CTAs right
+   • Hick's Law          — exactly two CTAs, five links
+   • Fitts's Law         — ≥44px effective targets on all links
+   • Von Restorff        — one solid-primary CTA stands out
+   • Serial Position     — Product first, FAQ last (memorable ends)
+   • Aesthetic-Usability — glass blur, logo tilt, CTA arrow nudge
+   • Doherty Threshold   — sub-400ms transitions
+   • Postel's Law        — skip-link for keyboard users,
+                           aria-current on active section
+   ───────────────────────────────────────────────────────────── */
+
 import { useEffect, useState } from "react";
 import { DEMO_URL, SIGNUP_URL } from "./shared/constants";
 
@@ -96,26 +111,38 @@ export default function Nav() {
           height: 56,
         }}>
 
-         {/* Wordmark */}
-<a
-  href="#"
-  aria-label="Situs — home"
-  style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}
->
-  <span style={{
-    width: 30, height: 30,
-    background: "linear-gradient(135deg, #0A0A0A 0%, #333 100%)",
-    borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-  }}>
-    <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, letterSpacing: "-0.05em" }}>
-      S
-    </span>
-  </span>
-  <span style={{ fontSize: 17, fontWeight: 800, color: "var(--t-primary)", letterSpacing: "-0.04em" }}>
-    Situs
-  </span>
-</a>
+          {/* Wordmark — mark tilts playfully on hover (Aesthetic-Usability) */}
+          <a
+            href="#"
+            aria-label="Situs — home"
+            style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}
+            onMouseEnter={(e) => {
+              const mark = e.currentTarget.querySelector<HTMLElement>("[data-mark]");
+              if (mark) mark.style.transform = "rotate(-6deg) scale(1.06)";
+            }}
+            onMouseLeave={(e) => {
+              const mark = e.currentTarget.querySelector<HTMLElement>("[data-mark]");
+              if (mark) mark.style.transform = "rotate(0deg) scale(1)";
+            }}
+          >
+            <span
+              data-mark
+              style={{
+                width: 30, height: 30,
+                background: "linear-gradient(135deg, #0A0A0A 0%, #333 100%)",
+                borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                transition: "transform 0.3s cubic-bezier(.34,1.56,.64,1)",
+              }}
+            >
+              <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, letterSpacing: "-0.05em" }}>
+                S
+              </span>
+            </span>
+            <span style={{ fontSize: 17, fontWeight: 800, color: "var(--t-primary)", letterSpacing: "-0.04em" }}>
+              Situs
+            </span>
+          </a>
 
           {/* Links */}
           <div className="nav-links" style={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -161,8 +188,25 @@ export default function Nav() {
             <a href={DEMO_URL} className="btn btn--secondary btn--sm hide-mobile">
               Book Demo
             </a>
-            <a href={SIGNUP_URL} className="btn btn--primary btn--sm">
-              Join Beta →
+            <a
+              href={SIGNUP_URL}
+              className="btn btn--primary btn--sm"
+              onMouseEnter={(e) => {
+                const arrow = e.currentTarget.querySelector<HTMLElement>("[data-arrow]");
+                if (arrow) arrow.style.transform = "translateX(3px)";
+              }}
+              onMouseLeave={(e) => {
+                const arrow = e.currentTarget.querySelector<HTMLElement>("[data-arrow]");
+                if (arrow) arrow.style.transform = "translateX(0)";
+              }}
+            >
+              Join Beta{" "}
+              <span
+                data-arrow
+                style={{ display: "inline-block", transition: "transform 0.25s var(--ease)" }}
+              >
+                →
+              </span>
             </a>
           </div>
 

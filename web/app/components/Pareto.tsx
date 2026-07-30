@@ -1,5 +1,22 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   PARETO — 80/20 framework section
+   UX laws applied (annotated inline):
+   • Pareto Principle    — the section IS the law, made visual
+   • Von Restorff        — one bold indigo 20% block vs muted 80%
+   • Law of Proximity    — signal cards stacked as one group
+   • Miller's Law        — 4 signals, each with one number
+   • Serial Position     — highest-weight signal first
+   • Goal-Gradient       — weight bars animate toward their value,
+                           numbers count up (progress = engagement)
+   • Aesthetic-Usability — staggered fills, hover nudge
+   • Doherty Threshold   — sub-400ms interactions; 900ms fill is
+                           a deliberate storytelling exception
+   • Postel's Law        — reduced-motion: bars render full instantly
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 
 const SIGNALS = [
@@ -8,6 +25,114 @@ const SIGNALS = [
   { label: "Forecast Drift",    desc: "Detects when forecast accuracy is declining.",  accent: "#F59E0B", weight: 78 },
   { label: "Engagement Gaps",   desc: "Surfaces deals gone silent too long.",          accent: "#10B981", weight: 71 },
 ];
+
+/* Signal card — weight bar fills + number counts up when visible */
+function SignalCard({ s, i }: { s: (typeof SIGNALS)[number]; i: number }) {
+  const prefersReduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [visible, setVisible] = useState<boolean>(prefersReduced);
+  const [count, setCount] = useState<number>(prefersReduced ? s.weight : 0);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        obs.disconnect();
+        setVisible(true);
+
+        /* Count-up synced with the bar fill */
+        const duration = 900;
+        const start = performance.now();
+        const tick = (now: number) => {
+          const p = Math.min((now - start) / duration, 1);
+          const eased = p === 1 ? 1 : 1 - Math.pow(2, -10 * p);
+          setCount(Math.round(eased * s.weight));
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      },
+      { threshold: 0.35 }
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [s.weight]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        background: "#fff", border: "1px solid var(--s-border)",
+        borderRadius: 14, padding: "18px 20px",
+        transition: "all var(--speed-base) var(--ease)",
+        position: "relative", overflow: "hidden",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(12px)",
+        transitionDelay: `${i * 80}ms`,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = `${s.accent}30`;
+        e.currentTarget.style.boxShadow = `0 8px 24px ${s.accent}12`;
+        e.currentTarget.style.transform = "translateX(4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--s-border)";
+        e.currentTarget.style.boxShadow = "none";
+        e.currentTarget.style.transform = "translateX(0)";
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 12 }}>
+        <div aria-hidden="true" style={{
+          width: 30, height: 30, borderRadius: 9,
+          background: `${s.accent}15`, border: `1px solid ${s.accent}30`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, color: s.accent, fontWeight: 800, flexShrink: 0,
+        }}>
+          {String(i + 1).padStart(2, "0")}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{
+              fontSize: 14, fontWeight: 700,
+              letterSpacing: "-0.02em", color: "var(--t-primary)",
+            }}>
+              {s.label}
+            </h3>
+            {/* Goal-Gradient — number counts up with the bar */}
+            <span style={{ fontSize: 13, fontWeight: 800, color: s.accent }}>
+              {count}%
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: "var(--t-tertiary)", lineHeight: 1.5, marginTop: 2 }}>
+            {s.desc}
+          </p>
+        </div>
+      </div>
+
+      {/* Impact weight bar — fills when scrolled into view */}
+      <div
+        role="progressbar"
+        aria-valuenow={s.weight}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${s.label} impact weight`}
+        style={{
+          height: 4, borderRadius: 100,
+          background: "#F0F0F0", overflow: "hidden",
+        }}
+      >
+        <div style={{
+          height: "100%",
+          width: visible ? `${s.weight}%` : "0%",
+          background: `linear-gradient(90deg, ${s.accent}, ${s.accent}99)`,
+          borderRadius: 100,
+          transition: `width 0.9s cubic-bezier(.16,1,.3,1) ${i * 80 + 150}ms`,
+        }} />
+      </div>
+    </div>
+  );
+}
 
 export default function Pareto() {
   return (
@@ -114,74 +239,10 @@ export default function Pareto() {
               Pareto Principle applied to revenue intelligence
             </p>
 
-            {/* Signal cards with weight bars */}
+            {/* Signal cards — staggered entrance, animated fills */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {SIGNALS.map((s, i) => (
-                <div
-                  key={s.label}
-                  style={{
-                    background: "#fff", border: "1px solid var(--s-border)",
-                    borderRadius: 14, padding: "18px 20px",
-                    transition: "all var(--speed-base) var(--ease)",
-                    position: "relative", overflow: "hidden",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = `${s.accent}30`;
-                    e.currentTarget.style.boxShadow = `0 8px 24px ${s.accent}12`;
-                    e.currentTarget.style.transform = "translateX(4px)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--s-border)";
-                    e.currentTarget.style.boxShadow = "none";
-                    e.currentTarget.style.transform = "translateX(0)";
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 12 }}>
-                    <div aria-hidden="true" style={{
-                      width: 30, height: 30, borderRadius: 9,
-                      background: `${s.accent}15`, border: `1px solid ${s.accent}30`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, color: s.accent, fontWeight: 800, flexShrink: 0,
-                    }}>
-                      {String(i + 1).padStart(2, "0")}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <h3 style={{
-                          fontSize: 14, fontWeight: 700,
-                          letterSpacing: "-0.02em", color: "var(--t-primary)",
-                        }}>
-                          {s.label}
-                        </h3>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: s.accent }}>
-                          {s.weight}%
-                        </span>
-                      </div>
-                      <p style={{ fontSize: 13, color: "var(--t-tertiary)", lineHeight: 1.5, marginTop: 2 }}>
-                        {s.desc}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Impact weight bar */}
-                  <div
-                    role="progressbar"
-                    aria-valuenow={s.weight}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={`${s.label} impact weight`}
-                    style={{
-                      height: 4, borderRadius: 100,
-                      background: "#F0F0F0", overflow: "hidden",
-                    }}
-                  >
-                    <div style={{
-                      height: "100%", width: `${s.weight}%`,
-                      background: `linear-gradient(90deg, ${s.accent}, ${s.accent}99)`,
-                      borderRadius: 100,
-                    }} />
-                  </div>
-                </div>
+                <SignalCard key={s.label} s={s} i={i} />
               ))}
             </div>
 

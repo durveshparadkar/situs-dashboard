@@ -1,6 +1,22 @@
 "use client";
 
-import { useState } from "react";
+/* ─────────────────────────────────────────────────────────────
+   PRODUCT — bento feature grid, enterprise polish
+   UX laws applied (annotated inline):
+   • Miller's Law        — 8 modules in a scannable bento, chunked
+   • Von Restorff        — 2 large hero cards break the grid rhythm
+   • Fitts's Law         — whole card is the hover/hit target
+   • Law of Similarity   — consistent card anatomy, accent = identity
+   • Law of Common Region — bordered cards, metrics in one strip
+   • Serial Position     — strongest modules first & last
+   • Aesthetic-Usability — micro-motion, corner glow, icon lift
+   • Doherty Threshold   — all transitions < 400ms
+   • Goal-Gradient       — numbered 01–08 implies a guided tour
+   • Peak-End Rule       — closes on a confident metrics strip
+   • Postel's Law        — prefers-reduced-motion respected
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 import { FEATURES } from "./shared/constants";
 
@@ -18,6 +34,23 @@ const ACCENTS = [
 
 export default function Product() {
   const [hovered, setHovered] = useState<number | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", handler);
+    else mq.addListener(handler);
+    return () => {
+      // Cast handler to EventListener to satisfy TypeScript overloads for
+      // both modern and legacy APIs.
+      const h = handler as unknown as EventListener;
+      if (mq.removeEventListener) mq.removeEventListener("change", h);
+      else mq.removeListener(h as unknown as (this: MediaQueryList, ev: MediaQueryListEvent) => unknown);
+    };
+  }, []);
 
   return (
     <section
@@ -30,7 +63,7 @@ export default function Product() {
       }}
     >
       {/* Gradient mesh */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
         <div style={{
           position: "absolute", top: "10%", right: "-10%",
           width: 600, height: 600, borderRadius: "50%",
@@ -46,7 +79,7 @@ export default function Product() {
       </div>
 
       {/* Top border line */}
-      <div style={{
+      <div aria-hidden="true" style={{
         position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
         width: 800, height: 1,
         background: "linear-gradient(90deg, transparent, rgba(99,102,241,0.3), rgba(16,185,129,0.3), transparent)",
@@ -132,40 +165,42 @@ export default function Product() {
           {FEATURES.map((f, i) => {
             const accent = ACCENTS[i];
             const isHovered = hovered === i;
-            // Large cards for first 2
+            // Von Restorff — first two cards break the rhythm at 2x width
             const isLarge = i < 2;
 
             return (
-              <Reveal
-                key={f.title}
-                delay={i * 45}
-                className={isLarge ? "" : ""}
-              >
+              <Reveal key={f.title} delay={i * 45}>
                 <div
                   onMouseEnter={() => setHovered(i)}
                   onMouseLeave={() => setHovered(null)}
+                  onFocus={() => setHovered(i)}
+                  onBlur={() => setHovered(null)}
+                  tabIndex={0}
                   style={{
-                    background: isHovered
-                      ? accent.bg
-                      : "#FAFAFA",
+                    background: isHovered ? accent.bg : "#FAFAFA",
                     border: `1px solid ${isHovered ? accent.border : "#EBEBEB"}`,
                     borderRadius: 16,
                     padding: isLarge ? "36px 32px" : "28px 26px",
                     height: "100%",
                     cursor: "default",
+                    /* Doherty — sub-400ms spring curve */
                     transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
-                    transform: isHovered ? "translateY(-4px)" : "translateY(0)",
+                    transform: isHovered && !reducedMotion ? "translateY(-4px)" : "translateY(0)",
                     boxShadow: isHovered
                       ? `0 16px 40px ${accent.bg}, 0 4px 12px rgba(0,0,0,0.06)`
                       : "0 1px 3px rgba(0,0,0,0.04)",
                     position: "relative",
                     overflow: "hidden",
                     gridColumn: isLarge ? "span 2" : "span 1",
+                    outline: "none",
+                    /* Similarity — non-hovered cards recede slightly,
+                       spotlighting one module at a time */
+                    opacity: hovered !== null && !isHovered ? 0.75 : 1,
                   }}
                 >
-                  {/* Subtle corner glow on hover */}
+                  {/* Corner glow on hover */}
                   {isHovered && (
-                    <div style={{
+                    <div aria-hidden="true" style={{
                       position: "absolute", top: -40, right: -40,
                       width: 120, height: 120, borderRadius: "50%",
                       background: `radial-gradient(circle, ${accent.icon}20 0%, transparent 70%)`,
@@ -173,7 +208,7 @@ export default function Product() {
                     }} />
                   )}
 
-                  {/* Icon */}
+                  {/* Icon — lifts and tilts subtly on hover */}
                   <div style={{
                     width: 46, height: 46,
                     background: isHovered ? `${accent.icon}15` : "#F0F0F0",
@@ -181,7 +216,10 @@ export default function Product() {
                     borderRadius: 12,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 20, marginBottom: 20,
-                    transition: "all 0.3s",
+                    transition: "all 0.3s cubic-bezier(.34,1.56,.64,1)",
+                    transform: isHovered && !reducedMotion
+                      ? "scale(1.08) rotate(-3deg)"
+                      : "scale(1) rotate(0deg)",
                     boxShadow: isHovered ? `0 4px 12px ${accent.icon}20` : "none",
                   }}>
                     <span style={{ filter: isHovered ? "none" : "grayscale(0.3)" }}>
@@ -189,7 +227,7 @@ export default function Product() {
                     </span>
                   </div>
 
-                  {/* Feature number */}
+                  {/* Feature number — Goal-Gradient: 01–08 reads as a guided tour */}
                   <div style={{
                     fontSize: 10, fontWeight: 800,
                     letterSpacing: "0.1em", textTransform: "uppercase",
@@ -231,7 +269,7 @@ export default function Product() {
           })}
         </div>
 
-        {/* ── Bottom metrics strip ── */}
+        {/* ── Bottom metrics strip (Peak-End — close confident) ── */}
         <Reveal delay={300}>
           <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr",
@@ -250,10 +288,16 @@ export default function Product() {
                 key={i}
                 style={{
                   background: "#fff", padding: "32px 24px", textAlign: "center",
-                  transition: "background 0.2s",
+                  transition: "background 0.2s, transform 0.2s",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#FAFAFA")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#FAFAFA";
+                  if (!reducedMotion) e.currentTarget.style.transform = "scale(1.02)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "#fff";
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
               >
                 <div style={{
                   fontSize: 38, fontWeight: 900,

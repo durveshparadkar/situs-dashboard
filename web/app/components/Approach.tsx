@@ -1,5 +1,24 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   APPROACH — signal → outcome, 4-step flow
+   UX laws applied (annotated inline):
+   • Uniform Connectedness — gradient flow line binds 4 steps
+                             into one continuous process
+   • Serial Position     — Ingest first, Win last
+   • Von Restorff        — only the outcome card is dark
+   • Miller's Law        — 4 steps, 3 results
+   • Goal-Gradient       — numbered progression 01→04 with the
+                           line drawing itself across = momentum
+   • Law of Similarity   — identical card anatomy per step
+   • Aesthetic-Usability — corner glows, pulsing outcome dot
+   • Doherty Threshold   — sub-400ms hover; the 1.2s line draw is
+                           a deliberate storytelling exception
+   • Peak-End Rule       — closes on a results banner
+   • Postel's Law        — reduced-motion: line renders complete
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 
 const STEPS = [
@@ -32,6 +51,23 @@ const RESULTS = [
 ];
 
 export default function Approach() {
+  const [lineVisible, setLineVisible] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  const lineRef = useRef<HTMLDivElement>(null);
+
+  /* Flow line draws itself left → right when the section scrolls in
+     (Goal-Gradient: the process visually completes before your eyes) */
+  useEffect(() => {
+    if (lineVisible) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setLineVisible(true); obs.disconnect(); } },
+      { threshold: 0.3 }
+    );
+    if (lineRef.current) obs.observe(lineRef.current);
+    return () => obs.disconnect();
+  }, [lineVisible]);
+
   return (
     <section style={{
       padding: "var(--section-y) var(--gutter)",
@@ -70,13 +106,25 @@ export default function Approach() {
         {/* ── Steps ── */}
         <div style={{ position: "relative" }}>
 
-          {/* Flow line (Uniform Connectedness — steps belong to one process) */}
-          <div className="hide-mobile" aria-hidden="true" style={{
-            position: "absolute", top: "50%", left: "8%", right: "8%",
-            height: 2, transform: "translateY(-50%)",
-            background: "linear-gradient(90deg, #6366F1, #8B5CF6, #10B981, #22C55E)",
-            opacity: 0.2, zIndex: 0,
-          }} />
+          {/* Flow line — draws itself in (Uniform Connectedness + Goal-Gradient) */}
+          <div
+            ref={lineRef}
+            className="hide-mobile"
+            aria-hidden="true"
+            style={{
+              position: "absolute", top: "50%", left: "8%", right: "8%",
+              height: 2, transform: "translateY(-50%)",
+              overflow: "hidden", zIndex: 0,
+            }}
+          >
+            <div style={{
+              height: "100%",
+              width: lineVisible ? "100%" : "0%",
+              background: "linear-gradient(90deg, #6366F1, #8B5CF6, #10B981, #22C55E)",
+              opacity: 0.2,
+              transition: "width 1.2s cubic-bezier(.16,1,.3,1)",
+            }} />
+          </div>
 
           <div className="four-col" style={{
             display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
@@ -104,12 +152,16 @@ export default function Approach() {
                       e.currentTarget.style.boxShadow = isLast
                         ? "0 24px 64px rgba(0,0,0,0.3)"
                         : `0 16px 40px ${step.accent}20`;
+                      const num = e.currentTarget.querySelector<HTMLElement>("[data-num]");
+                      if (num) num.style.transform = "scale(1.08)";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.transform = "translateY(0)";
                       e.currentTarget.style.boxShadow = isLast
                         ? "0 16px 48px rgba(0,0,0,0.2)"
                         : "var(--shadow-sm)";
+                      const num = e.currentTarget.querySelector<HTMLElement>("[data-num]");
+                      if (num) num.style.transform = "scale(1)";
                     }}
                   >
                     {/* Corner glow */}
@@ -134,11 +186,17 @@ export default function Approach() {
                       }}>
                         {step.tag}
                       </span>
-                      <span aria-hidden="true" style={{
-                        fontSize: 48, fontWeight: 900,
-                        letterSpacing: "-0.05em", lineHeight: 1,
-                        color: isLast ? "rgba(255,255,255,0.1)" : `${step.accent}20`,
-                      }}>
+                      <span
+                        data-num
+                        aria-hidden="true"
+                        style={{
+                          fontSize: 48, fontWeight: 900,
+                          letterSpacing: "-0.05em", lineHeight: 1,
+                          color: isLast ? "rgba(255,255,255,0.1)" : `${step.accent}20`,
+                          transition: "transform 0.3s cubic-bezier(.34,1.56,.64,1)",
+                          display: "inline-block",
+                        }}
+                      >
                         {step.num}
                       </span>
                     </div>
@@ -182,7 +240,7 @@ export default function Approach() {
           </div>
         </div>
 
-        {/* ── Results banner ── */}
+        {/* ── Results banner (Peak-End) ── */}
         <Reveal delay={400}>
           <div style={{
             marginTop: 32,

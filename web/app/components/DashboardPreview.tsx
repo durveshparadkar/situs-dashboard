@@ -1,21 +1,99 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   DASHBOARD PREVIEW — "inside the product" dark showcase
+   UX laws applied (annotated inline):
+   • Jakob's Law         — mirrors real dashboard anatomy
+                           (metrics grid, insight feed, footer)
+   • Miller's Law        — 6 metrics, 3 insights
+   • Law of Common Region — metric cards vs insight panel
+   • Law of Similarity   — accent color = signal type everywhere
+   • Serial Position     — At Risk placed second (early emphasis),
+                           Forecast Confidence last (leave on trust)
+   • Goal-Gradient       — "View all 12 recommendations" implies
+                           more value behind the door
+   • Zeigarnik Effect    — 3 shown of 12 = open loop
+   • Aesthetic-Usability — glass cards, accent lines, pulse
+   • Doherty Threshold   — "Updated now" copy = perceived speed
+   • Postel's Law        — reduced-motion respected
+   ───────────────────────────────────────────────────────────── */
+
+import { useEffect, useRef, useState } from "react";
 import { Reveal } from "./shared/Reveal";
 
 const METRICS = [
-  { label: "Active Deals",        value: "47",   change: "+6 this week",    up: true,  accent: "#6366F1" },
-  { label: "At Risk",             value: "8",    change: "Needs attention", up: false, accent: "#EF4444" },
-  { label: "Avg Deal Size",       value: "₹18L", change: "+22% QoQ",        up: true,  accent: "#10B981" },
-  { label: "Pipeline Coverage",   value: "3.2x", change: "Healthy",         up: true,  accent: "#10B981" },
-  { label: "Deals Closing Soon",  value: "12",   change: "Next 14 days",    up: null,  accent: "#F59E0B" },
-  { label: "Forecast Confidence", value: "84%",  change: "High",            up: true,  accent: "#22C55E" },
+  { label: "Active Deals",        value: "47",    change: "+6 this week",    up: true,  accent: "#6366F1" },
+  { label: "At Risk",             value: "8",     change: "Needs attention", up: false, accent: "#EF4444" },
+  { label: "Avg Deal Size",       value: "$22K",  change: "+22% QoQ",        up: true,  accent: "#10B981" },
+  { label: "Pipeline Coverage",   value: "3.2x",  change: "Healthy",         up: true,  accent: "#10B981" },
+  { label: "Deals Closing Soon",  value: "12",    change: "Next 14 days",    up: null,  accent: "#F59E0B" },
+  { label: "Forecast Confidence", value: "84%",   change: "High",            up: true,  accent: "#22C55E" },
 ];
 
 const AI_INSIGHTS = [
-  { text: "Deal \"Reliance Infra\" silent for 12 days — follow up with economic buyer before Thursday.", priority: "High",   color: "#EF4444" },
-  { text: "Pipeline coverage dropped to 3.1x — add 4 qualified opportunities to stay on track.",          priority: "Medium", color: "#F59E0B" },
-  { text: "Q3 forecast revised upward by ₹22L based on new deal signals detected this week.",             priority: "Info",   color: "#6366F1" },
+  { text: "Deal \"Northwind Logistics\" silent for 12 days — follow up with economic buyer before Thursday.", priority: "High",   color: "#EF4444" },
+  { text: "Pipeline coverage dropped to 3.1x — add 4 qualified opportunities to stay on track.",              priority: "Medium", color: "#F59E0B" },
+  { text: "Q3 forecast revised upward by $28K based on new deal signals detected this week.",                 priority: "Info",   color: "#6366F1" },
 ];
+
+/* Insight row — arrives sequentially like a live feed */
+function InsightRow({ insight, i, total }: { insight: (typeof AI_INSIGHTS)[number]; i: number; total: number }) {
+  const [visible, setVisible] = useState(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return true;
+    }
+    return false;
+  });
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (visible) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.3 }
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [visible]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        padding: "18px 24px",
+        borderBottom: i < total - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+        display: "flex", alignItems: "flex-start", gap: 16,
+        transition: `background var(--speed-fast) var(--ease), opacity 0.45s var(--ease) ${i * 140}ms, transform 0.45s var(--ease) ${i * 140}ms`,
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(8px)",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      <div aria-hidden="true" style={{
+        width: 26, height: 26, borderRadius: 8,
+        background: `${insight.color}15`, border: `1px solid ${insight.color}30`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 11, color: insight.color, fontWeight: 800, flexShrink: 0, marginTop: 1,
+      }}>
+        {i + 1}
+      </div>
+      <span style={{
+        fontSize: 14, color: "#AAA", lineHeight: 1.65,
+        letterSpacing: "-0.01em", flex: 1,
+      }}>
+        {insight.text}
+      </span>
+      <span style={{
+        fontSize: 10, color: insight.color, fontWeight: 700,
+        background: `${insight.color}12`, padding: "4px 10px", borderRadius: 100,
+        letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0,
+      }}>
+        {insight.priority}
+      </span>
+    </div>
+  );
+}
 
 export default function DashboardPreview() {
   return (
@@ -109,10 +187,12 @@ export default function DashboardPreview() {
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = `${m.accent}40`;
                   e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                  e.currentTarget.style.transform = "translateY(-3px)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
                   e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                  e.currentTarget.style.transform = "translateY(0)";
                 }}
               >
                 {/* Accent line */}
@@ -198,44 +278,12 @@ export default function DashboardPreview() {
               </span>
             </div>
 
-            {/* Rows */}
+            {/* Rows — arrive sequentially, like a live feed */}
             {AI_INSIGHTS.map((insight, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: "18px 24px",
-                  borderBottom: i < AI_INSIGHTS.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                  display: "flex", alignItems: "flex-start", gap: 16,
-                  transition: "background var(--speed-fast) var(--ease)",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              >
-                <div aria-hidden="true" style={{
-                  width: 26, height: 26, borderRadius: 8,
-                  background: `${insight.color}15`, border: `1px solid ${insight.color}30`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: `${11}px`, color: insight.color, fontWeight: 800, flexShrink: 0, marginTop: 1,
-                }}>
-                  {i + 1}
-                </div>
-                <span style={{
-                  fontSize: 14, color: "#AAA", lineHeight: 1.65,
-                  letterSpacing: "-0.01em", flex: 1,
-                }}>
-                  {insight.text}
-                </span>
-                <span style={{
-                  fontSize: 10, color: insight.color, fontWeight: 700,
-                  background: `${insight.color}12`, padding: "4px 10px", borderRadius: 100,
-                  letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0,
-                }}>
-                  {insight.priority}
-                </span>
-              </div>
+              <InsightRow key={i} insight={insight} i={i} total={AI_INSIGHTS.length} />
             ))}
 
-            {/* Footer */}
+            {/* Footer — Zeigarnik: 3 of 12 shown, open loop */}
             <div style={{
               padding: "16px 24px", borderTop: "1px solid rgba(255,255,255,0.06)",
               background: "rgba(255,255,255,0.01)",

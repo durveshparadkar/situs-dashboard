@@ -31,6 +31,10 @@ export const FAQS = [
     a: "Founders, sales leaders, and revenue operations teams who need pipeline visibility, forecast confidence, and risk detection in one place.",
   },
   {
+    q: "Does Situs work for teams outside the US?",
+    a: "Yes. Situs is built for revenue teams worldwide, with native support for USD, EUR, GBP, and INR. Your entire workspace — deals, forecasts, and reports — runs in the currency you choose.",
+  },
+  {
     q: "What integrations are available?",
     a: "Situs is designed to connect with modern revenue tools. Planned integrations include Salesforce, HubSpot, Slack, Zoom, Gmail, and Outlook.",
   },
@@ -41,6 +45,10 @@ export const FAQS = [
   {
     q: "How do intelligence reports work?",
     a: "Situs generates structured PDF reports that surface revenue risks, deal opportunities, and performance trends — helping teams act before it is too late.",
+  },
+  {
+    q: "Is my data secure?",
+    a: "Yes. All data is encrypted with AES-256 at rest and in transit, access is role-based, and our SOC2 Type II certification roadmap is active. Your revenue data is sensitive — we treat it that way.",
   },
 ];
 

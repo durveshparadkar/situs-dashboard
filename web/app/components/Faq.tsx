@@ -1,5 +1,21 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   FAQ — accordion with sticky rail
+   UX laws applied (annotated inline):
+   • Progressive Disclosure — answers hidden until requested
+   • Hick's Law          — one question open at a time (default)
+   • Fitts's Law         — 64px min-height question buttons
+   • Jakob's Law         — plus-rotates-to-x accordion pattern
+   • Von Restorff        — one dark "Still have questions?" card
+   • Serial Position     — first FAQ open by default (primacy)
+   • Zeigarnik Effect    — collapsed questions invite opening
+   • Aesthetic-Usability — smooth height/opacity choreography
+   • Doherty Threshold   — sub-400ms open/close
+   • Postel's Law        — real <button>, aria-expanded,
+                           aria-controls, keyboard-first
+   ───────────────────────────────────────────────────────────── */
+
 import { useState } from "react";
 import { Reveal } from "./shared/Reveal";
 import { FAQS, DEMO_URL } from "./shared/constants";
@@ -49,7 +65,7 @@ export default function Faq() {
                 Everything you need to know about Situs, beta access, and how it works.
               </p>
 
-              {/* Contact nudge */}
+              {/* Contact nudge — Von Restorff */}
               <div style={{
                 background: "linear-gradient(135deg, var(--c-ink) 0%, var(--c-ink-soft) 100%)",
                 borderRadius: "var(--r-lg)", padding: 24,
@@ -71,7 +87,8 @@ export default function Faq() {
                   fontSize: 13, color: "#888", lineHeight: 1.6, marginBottom: 18,
                   position: "relative",
                 }}>
-                  Book a demo and we&apos;ll walk you through everything live.
+                  Book a demo and we&apos;ll walk you through everything live —
+                  whichever timezone you&apos;re in.
                 </p>
                 <a
                   href={DEMO_URL}
@@ -125,53 +142,57 @@ export default function Faq() {
                       }}>
                         {faq.q}
                       </span>
-                     <span aria-hidden="true" style={{
-  width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
-  background: isOpen
-    ? "linear-gradient(135deg, var(--c-indigo), var(--c-violet))"
-    : "var(--s-sunken)",
-  border: `1px solid ${isOpen ? "transparent" : "var(--s-border-2)"}`,
-  display: "flex", alignItems: "center", justifyContent: "center",
-  transition: "all var(--speed-base) var(--ease)",
-  boxShadow: isOpen ? "0 4px 12px rgba(99,102,241,0.3)" : "none",
-}}>
-  <svg
-    width="12" height="12" viewBox="0 0 12 12"
-    style={{
-      transform: isOpen ? "rotate(45deg)" : "rotate(0deg)",
-      transition: "transform var(--speed-base) var(--ease)",
-      display: "block",
-    }}
-  >
-    <path
-      d="M6 1 V11 M1 6 H11"
-      stroke={isOpen ? "#fff" : "#999"}
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      style={{ transition: "stroke var(--speed-base) var(--ease)" }}
-    />
-  </svg>
-</span>
+                      <span aria-hidden="true" style={{
+                        width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                        background: isOpen
+                          ? "linear-gradient(135deg, var(--c-indigo), var(--c-violet))"
+                          : "var(--s-sunken)",
+                        border: `1px solid ${isOpen ? "transparent" : "var(--s-border-2)"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all var(--speed-base) var(--ease)",
+                        boxShadow: isOpen ? "0 4px 12px rgba(99,102,241,0.3)" : "none",
+                      }}>
+                        <svg
+                          width="12" height="12" viewBox="0 0 12 12"
+                          style={{
+                            transform: isOpen ? "rotate(45deg)" : "rotate(0deg)",
+                            transition: "transform var(--speed-base) var(--ease)",
+                            display: "block",
+                          }}
+                        >
+                          <path
+                            d="M6 1 V11 M1 6 H11"
+                            stroke={isOpen ? "#fff" : "#999"}
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            style={{ transition: "stroke var(--speed-base) var(--ease)" }}
+                          />
+                        </svg>
+                      </span>
                     </button>
 
-                    {/* Answer region */}
+                    {/* Answer region — animated via grid-rows so the close
+                        transition actually plays (removing hidden, which
+                        was cutting the animation off instantly) */}
                     <div
                       id={`faq-answer-${i}`}
                       role="region"
-                      hidden={!isOpen}
+                      aria-hidden={!isOpen}
                       style={{
-                        maxHeight: isOpen ? 300 : 0,
+                        display: "grid",
+                        gridTemplateRows: isOpen ? "1fr" : "0fr",
                         opacity: isOpen ? 1 : 0,
-                        overflow: "hidden",
-                        transition: "max-height var(--speed-slow) var(--ease), opacity var(--speed-slow) var(--ease)",
+                        transition: "grid-template-rows var(--speed-slow) var(--ease), opacity var(--speed-slow) var(--ease)",
                       }}
                     >
-                      <p style={{
-                        fontSize: 15, color: "var(--t-secondary)", lineHeight: 1.75,
-                        padding: "0 24px 24px", maxWidth: 600,
-                      }}>
-                        {faq.a}
-                      </p>
+                      <div style={{ overflow: "hidden" }}>
+                        <p style={{
+                          fontSize: 15, color: "var(--t-secondary)", lineHeight: 1.75,
+                          padding: "0 24px 24px", maxWidth: 600,
+                        }}>
+                          {faq.a}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </Reveal>

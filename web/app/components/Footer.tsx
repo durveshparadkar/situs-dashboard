@@ -1,5 +1,18 @@
 "use client";
 
+/* ─────────────────────────────────────────────────────────────
+   FOOTER — global positioning
+   UX laws applied (annotated inline):
+   • Jakob's Law         — brand left, link columns, legal bottom
+   • Law of Common Region — link groups under labeled headings
+   • Fitts's Law         — ≥44px input, link hover targets
+   • Postel's Law        — forgiving email input, autoComplete
+   • Serial Position     — footer is the last impression:
+                           closes on a live global-status chip
+   • Peak-End Rule       — "Beta — Live Worldwide" ends the page
+                           on momentum, not legalese
+   ───────────────────────────────────────────────────────────── */
+
 import { DEMO_URL } from "./shared/constants";
 
 const LINKS = {
@@ -63,8 +76,8 @@ export default function Footer() {
               fontSize: 14, color: "var(--t-tertiary)", lineHeight: 1.75,
               maxWidth: 280, marginBottom: 28,
             }}>
-              AI Decision &amp; Revenue Intelligence for modern revenue teams.
-              Built for founders, sales leaders, and RevOps.
+              AI Decision &amp; Revenue Intelligence for modern revenue teams
+              worldwide. Built for founders, sales leaders, and RevOps.
             </p>
 
             {/* Newsletter — real form (Postel: forgiving input) */}
@@ -103,6 +116,20 @@ export default function Footer() {
                 </button>
               </div>
             </form>
+
+            {/* Currency support signal */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6, marginTop: 20,
+              fontSize: 12, color: "var(--t-faint)", fontWeight: 500,
+            }}>
+              <span>Billing in</span>
+              {["USD", "EUR", "GBP", "INR"].map((c, i) => (
+                <span key={c} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: "var(--t-tertiary)", fontWeight: 600 }}>{c}</span>
+                  {i < 3 && <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Link columns */}
@@ -153,7 +180,7 @@ export default function Footer() {
           alignItems: "center", flexWrap: "wrap", gap: 16,
         }}>
           <div style={{ fontSize: 13, color: "var(--t-faint)" }}>
-            © 2026 Situs. AI Decision &amp; Revenue Intelligence. All rights reserved.
+            ©️ 2026 Situs. AI Decision &amp; Revenue Intelligence. All rights reserved.
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
@@ -173,6 +200,7 @@ export default function Footer() {
             ))}
           </div>
 
+          {/* Peak-End — page closes on global momentum */}
           <div style={{
             display: "flex", alignItems: "center", gap: 6,
             fontSize: 13, color: "var(--t-tertiary)", fontWeight: 500,
@@ -184,7 +212,7 @@ export default function Footer() {
               background: "var(--c-green)", boxShadow: "0 0 6px #22C55E",
               animation: "pulse 2s infinite",
             }} />
-            Beta — India 🇮🇳
+            Beta — Live Worldwide 🌍
           </div>
         </div>
 
