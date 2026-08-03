@@ -241,7 +241,7 @@ export default function Hero() {
                   padding: "5px 12px", fontSize: 12, color: "#999", fontWeight: 500,
                   display: "flex", alignItems: "center", gap: 6,
                 }}>
-                  <span style={{ fontSize: 10 }}>🔒</span> app.situs.ai
+                  <span style={{ fontSize: 10 }}>🔒</span> app.situsrevenue.com
                 </div>
               </div>
 

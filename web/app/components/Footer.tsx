@@ -14,6 +14,7 @@
    ───────────────────────────────────────────────────────────── */
 
 import { DEMO_URL } from "./shared/constants";
+import Image from "next/image";
 
 const LINKS = {
   Product: ["Dashboard", "Deals", "Pipeline", "Forecasting", "Analytics", "AI Intelligence"],
@@ -52,24 +53,20 @@ export default function Footer() {
           gap: 64, marginBottom: 56,
         }}>
 
-          {/* Brand */}
+         {/* Brand */}
           <div>
             <a
               href="#"
               aria-label="Situs — back to top"
-              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 20 }}
+              style={{ textDecoration: "none", display: "inline-flex", marginBottom: 20 }}
             >
-              <span aria-hidden="true" style={{
-                width: 34, height: 34,
-                background: "linear-gradient(135deg, var(--c-ink) 0%, #333 100%)",
-                borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-              }}>
-                <span style={{ color: "#fff", fontSize: 16, fontWeight: 900, letterSpacing: "-0.05em" }}>S</span>
-              </span>
-              <span style={{ fontSize: 19, fontWeight: 800, color: "var(--t-primary)", letterSpacing: "-0.04em" }}>
-                Situs
-              </span>
+              <Image
+                src="/situs-logo.png"
+                alt="Situs Revenue"
+                width={82}
+                height={46}
+                style={{ height: 46, width: "auto", display: "block" }}
+              />
             </a>
 
             <p style={{
