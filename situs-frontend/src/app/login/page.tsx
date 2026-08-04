@@ -49,15 +49,15 @@ export default function LoginPage() {
     return () => clearInterval(interval);
   }, []);
 
-useEffect(() => {
-  /* Wake up the backend immediately on page load — Render's free tier
-     spins down on inactivity, so the first real request (login) would
-     otherwise wait through a 30-50s cold start. Pinging /health here
-     means the server is already warming up while the user types. */
-  fetch("https://api.situsrevenue.com/health").catch(() => {
-    /* best-effort — ignore failures, this is just a warm-up ping */
-  });
-}, []);
+  useEffect(() => {
+    /* Wake up the backend immediately on page load — Render's free tier
+       spins down on inactivity, so the first real request (login) would
+       otherwise wait through a 30-50s cold start. Pinging /health here
+       means the server is already warming up while the user types. */
+    fetch("https://api.situsrevenue.com/health").catch(() => {
+      /* best-effort — ignore failures, this is just a warm-up ping */
+    });
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -99,8 +99,8 @@ useEffect(() => {
   };
 
   const handleGoogle = () => {
-  window.location.href = "https://api.situsrevenue.com/api/auth/google";
-};
+    window.location.href = "https://api.situsrevenue.com/api/auth/google";
+  };
 
   return (
     <div className="min-h-screen flex">
@@ -138,8 +138,14 @@ useEffect(() => {
           animate="visible"
           variants={fadeUp}
         >
-          <p className="text-sm font-semibold tracking-[0.2em]">SITUS</p>
-          <p className="text-[11px] text-white/40 mt-1">Revenue OS</p>
+          <Image
+            src="/situs-logo-light.png"
+            alt="Situs Revenue"
+            width={96}
+            height={54}
+            priority
+            className="h-[54px] w-auto"
+          />
         </motion.div>
 
         {/* QUOTE CARD */}
@@ -191,7 +197,7 @@ useEffect(() => {
         >
           <span>44 deals tracked</span>
           <span className="h-1 w-1 rounded-full bg-white/20" />
-          <span>₹3.8Cr+ pipeline managed</span>
+          <span>$460K+ pipeline managed</span>
         </motion.div>
       </div>
 
@@ -205,15 +211,19 @@ useEffect(() => {
         >
 
           <motion.div
-            className="lg:hidden text-center"
+            className="lg:hidden flex justify-center"
             custom={0}
             initial="hidden"
             animate="visible"
             variants={fadeUp}
           >
-            <p className="text-sm font-semibold tracking-[0.2em] text-slate-900">
-              SITUS
-            </p>
+            <Image
+              src="/situs-logo.png"
+              alt="Situs Revenue"
+              width={71}
+              height={40}
+              className="h-10 w-auto"
+            />
           </motion.div>
 
           <motion.div
@@ -284,26 +294,26 @@ useEffect(() => {
               />
             </div>
 
-           <div>
-  <p className="text-xs text-slate-500 mb-1">Password</p>
-  <input
-    type="password"
-    placeholder="••••••••"
-    className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-    autoComplete="current-password"
-  />
-  <div className="text-right mt-1.5">
-    <span
-      onClick={() => router.push("/forgot-password")}
-      className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer hover:underline"
-    >
-      Forgot password?
-    </span>
-  </div>
-</div>
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Password</p>
+              <input
+                type="password"
+                placeholder="••••••••"
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                autoComplete="current-password"
+              />
+              <div className="text-right mt-1.5">
+                <span
+                  onClick={() => router.push("/forgot-password")}
+                  className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer hover:underline"
+                >
+                  Forgot password?
+                </span>
+              </div>
+            </div>
           </motion.div>
 
           <motion.button
@@ -332,8 +342,6 @@ useEffect(() => {
           >
             🔒 Secured with industry-standard encryption
           </motion.p>
-           
-  
 
           <p className="text-sm text-center text-slate-500">
             Don&apos;t have an account?{" "}
