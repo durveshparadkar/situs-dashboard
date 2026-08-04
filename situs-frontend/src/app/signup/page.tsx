@@ -185,8 +185,14 @@ export default function SignupPage() {
           animate="visible"
           variants={fadeUp}
         >
-          <p className="text-sm font-semibold tracking-[0.2em]">SITUS</p>
-          <p className="text-[11px] text-white/40 mt-1">Revenue OS</p>
+          <Image
+            src="/situs-logo-light.png"
+            alt="Situs Revenue"
+            width={96}
+            height={54}
+            priority
+            className="h-[54px] w-auto"
+          />
         </motion.div>
 
         {/* QUOTE CARD */}
@@ -238,7 +244,7 @@ export default function SignupPage() {
         >
           <span>44 deals tracked</span>
           <span className="h-1 w-1 rounded-full bg-white/20" />
-          <span>₹3.8Cr+ pipeline managed</span>
+          <span>$460K+ pipeline managed</span>
         </motion.div>
       </div>
 
@@ -252,15 +258,19 @@ export default function SignupPage() {
         >
 
           <motion.div
-            className="lg:hidden text-center"
+            className="lg:hidden flex justify-center"
             custom={0}
             initial="hidden"
             animate="visible"
             variants={fadeUp}
           >
-            <p className="text-sm font-semibold tracking-[0.2em] text-slate-900">
-              SITUS
-            </p>
+            <Image
+              src="/situs-logo.png"
+              alt="Situs Revenue"
+              width={71}
+              height={40}
+              className="h-10 w-auto"
+            />
           </motion.div>
 
           <motion.div

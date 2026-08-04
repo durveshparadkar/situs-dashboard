@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -96,10 +97,16 @@ export default function Sidebar() {
       {/* HEADER */}
       <div className="h-14 flex items-center justify-between px-3 border-b">
         {!collapsed && (
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Situs</p>
-            <p className="text-[11px] text-slate-400">Revenue OS</p>
-          </div>
+          <Link href="/dashboard" className="flex items-center">
+            <Image
+              src="/situs-logo.png"
+              alt="Situs Revenue"
+              width={57}
+              height={32}
+              priority
+              className="h-8 w-auto"
+            />
+          </Link>
         )}
 
         <button
