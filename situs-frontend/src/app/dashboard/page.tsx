@@ -452,27 +452,28 @@ export default function DashboardPage() {
 
         {/* CHART + FORECAST */}
         <div className="grid lg:grid-cols-2 gap-6">
-          <Card><PipelineHealthChart /></Card>
+          <Card><PipelineHealthChart currency={currency} /></Card>
           <Card>
-            <RevenueForecast
-              expectedRevenue={
-                intel ? intel.forecast.summary.totalWeightedAtRisk : 0
-              }
-              confidence={
-                intel
-                  ? intel.forecast.summary.confidence === "high"
-                    ? 85
-                    : intel.forecast.summary.confidence === "medium"
-                    ? 65
-                    : 35
-                  : 0
-              }
-              dealsLikely={
-                intel ? intel.dealRisks.filter((d) => d.riskScore < 50).length : 0
-              }
-              prevActual={1310000}
-            />
-          </Card>
+  <RevenueForecast
+    expectedRevenue={
+      intel ? intel.forecast.summary.totalWeightedAtRisk : 0
+    }
+    confidence={
+      intel
+        ? intel.forecast.summary.confidence === "high"
+          ? 85
+          : intel.forecast.summary.confidence === "medium"
+          ? 65
+          : 35
+        : 0
+    }
+    dealsLikely={
+      intel ? intel.dealRisks.filter((d) => d.riskScore < 50).length : 0
+    }
+    prevActual={1310000}
+    currency={currency}
+  />
+</Card>
         </div>
 
         {/* TABLE */}
