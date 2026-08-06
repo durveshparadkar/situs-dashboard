@@ -5,7 +5,7 @@
    UX laws applied (annotated inline):
    • Miller's Law        — 8 modules in a scannable bento, chunked
    • Von Restorff        — 2 large hero cards break the grid rhythm
-   • Fitts's Law         — whole card is the hover/hit target
+   • Fitts's Law         — whole card is the hover/hit/click target
    • Law of Similarity   — consistent card anatomy, accent = identity
    • Law of Common Region — bordered cards, metrics in one strip
    • Serial Position     — strongest modules first & last
@@ -17,8 +17,9 @@
    ───────────────────────────────────────────────────────────── */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Reveal } from "./shared/Reveal";
-import { FEATURES } from "./shared/constants";
+import { FEATURE_DETAILS } from "./shared/feature-details";
 
 // Accent colors per feature — intentional, not random
 const ACCENTS = [
@@ -44,8 +45,6 @@ export default function Product() {
     if (mq.addEventListener) mq.addEventListener("change", handler);
     else mq.addListener(handler);
     return () => {
-      // Cast handler to EventListener to satisfy TypeScript overloads for
-      // both modern and legacy APIs.
       const h = handler as unknown as EventListener;
       if (mq.removeEventListener) mq.removeEventListener("change", h);
       else mq.removeListener(h as unknown as (this: MediaQueryList, ev: MediaQueryListEvent) => unknown);
@@ -162,7 +161,7 @@ export default function Product() {
           gridTemplateRows: "auto auto",
           gap: 12,
         }}>
-          {FEATURES.map((f, i) => {
+          {FEATURE_DETAILS.map((f, i) => {
             const accent = ACCENTS[i];
             const isHovered = hovered === i;
             // Von Restorff — first two cards break the rhythm at 2x width
@@ -170,19 +169,20 @@ export default function Product() {
 
             return (
               <Reveal key={f.title} delay={i * 45}>
-                <div
+                <Link
+                  href={`/features/${f.slug}`}
                   onMouseEnter={() => setHovered(i)}
                   onMouseLeave={() => setHovered(null)}
                   onFocus={() => setHovered(i)}
                   onBlur={() => setHovered(null)}
-                  tabIndex={0}
                   style={{
                     background: isHovered ? accent.bg : "#FAFAFA",
                     border: `1px solid ${isHovered ? accent.border : "#EBEBEB"}`,
                     borderRadius: 16,
                     padding: isLarge ? "36px 32px" : "28px 26px",
                     height: "100%",
-                    cursor: "default",
+                    cursor: "pointer",
+                    textDecoration: "none",
                     /* Doherty — sub-400ms spring curve */
                     transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
                     transform: isHovered && !reducedMotion ? "translateY(-4px)" : "translateY(0)",
@@ -193,6 +193,7 @@ export default function Product() {
                     overflow: "hidden",
                     gridColumn: isLarge ? "span 2" : "span 1",
                     outline: "none",
+                    display: "block",
                     /* Similarity — non-hovered cards recede slightly,
                        spotlighting one module at a time */
                     opacity: hovered !== null && !isHovered ? 0.75 : 1,
@@ -252,7 +253,7 @@ export default function Product() {
                     {f.desc}
                   </div>
 
-                  {/* Arrow on hover */}
+                  {/* Arrow on hover — now a real navigation cue */}
                   <div style={{
                     marginTop: 16,
                     fontSize: 12, fontWeight: 700,
@@ -263,7 +264,7 @@ export default function Product() {
                   }}>
                     Learn more →
                   </div>
-                </div>
+                </Link>
               </Reveal>
             );
           })}

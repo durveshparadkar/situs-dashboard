@@ -2,7 +2,7 @@ import { GLOBAL_STYLES } from "./components/shared/constants";
 
 import Nav              from "./components/Nav";
 import Hero             from "./components/Hero";
-import Product          from "./components/Product";
+import Product          from "./components/Product-linked";
 import Problem          from "./components/Problem";
 import Approach         from "./components/Approach";
 import DashboardPreview from "./components/DashboardPreview";
