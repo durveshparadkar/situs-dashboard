@@ -13,13 +13,34 @@
                            on momentum, not legalese
    ───────────────────────────────────────────────────────────── */
 
-import { DEMO_URL } from "./shared/constants";
+import { DEMO_URL, SIGNUP_URL, APP_URL } from "./shared/constants";
 import Image from "next/image";
 
-const LINKS = {
-  Product: ["Dashboard", "Deals", "Pipeline", "Forecasting", "Analytics", "AI Intelligence"],
-  Company: ["About", "Beta Program", "Security", "FAQ"],
-  Connect: ["Book Demo", "Join Beta", "Request Access"],
+/* Each link now has a real destination instead of every item
+   pointing at DEMO_URL. Product items are in-page anchors to
+   sections that already exist on this page; Company items go to
+   their actual sections/pages; Connect items go to the right
+   conversion action for what they say. */
+const LINKS: Record<string, Array<{ label: string; href: string }>> = {
+  Product: [
+    { label: "Dashboard",      href: "#product" },
+    { label: "Deals",          href: "#features" },
+    { label: "Pipeline",       href: "#features" },
+    { label: "Forecasting",    href: "#features" },
+    { label: "Analytics",      href: "#features" },
+    { label: "AI Intelligence", href: "#features" },
+  ],
+  Company: [
+    { label: "About",         href: "#product" },
+    { label: "Beta Program",  href: "#pricing" },
+    { label: "Security",      href: "#security" },
+    { label: "FAQ",           href: "#faq" },
+  ],
+  Connect: [
+    { label: "Book Demo",       href: DEMO_URL },
+    { label: "Join Beta",       href: SIGNUP_URL },
+    { label: "Request Access",  href: `${APP_URL}/signup` },
+  ],
 };
 
 export default function Footer() {
@@ -53,7 +74,7 @@ export default function Footer() {
           gap: 64, marginBottom: 56,
         }}>
 
-         {/* Brand */}
+          {/* Brand */}
           <div>
             <a
               href="#"
@@ -129,7 +150,7 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Link columns */}
+          {/* Link columns — each item now has its own real href */}
           {Object.entries(LINKS).map(([title, items]) => (
             <nav key={title} aria-label={`${title} links`}>
               <h3 style={{
@@ -141,9 +162,9 @@ export default function Footer() {
               </h3>
               <ul style={{ display: "flex", flexDirection: "column", gap: 12, listStyle: "none" }}>
                 {items.map((item) => (
-                  <li key={item}>
+                  <li key={item.label}>
                     <a
-                      href={DEMO_URL}
+                      href={item.href}
                       style={{
                         fontSize: 14, color: "var(--t-tertiary)", textDecoration: "none",
                         transition: "color var(--speed-fast) var(--ease), padding-left var(--speed-fast) var(--ease)",
@@ -158,7 +179,7 @@ export default function Footer() {
                         e.currentTarget.style.paddingLeft = "0px";
                       }}
                     >
-                      {item}
+                      {item.label}
                     </a>
                   </li>
                 ))}
