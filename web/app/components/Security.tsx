@@ -79,11 +79,14 @@ function TrustChip({ item, delay }: { item: string; delay: number }) {
 
 export default function Security() {
   return (
-    <section style={{
-      padding: "var(--section-y) var(--gutter)",
-      background: "var(--s-base)",
-      position: "relative", overflow: "hidden",
-    }}>
+    <section
+      id="security"
+      style={{
+        padding: "var(--section-y) var(--gutter)",
+        background: "var(--s-base)",
+        position: "relative", overflow: "hidden",
+      }}
+    >
 
       {/* Mesh */}
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
