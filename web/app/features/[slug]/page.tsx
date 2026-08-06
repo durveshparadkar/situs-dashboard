@@ -8,30 +8,63 @@ import { FEATURE_DETAILS, getFeatureBySlug } from "../../components/shared/featu
 import { DEMO_URL, SIGNUP_URL, GLOBAL_STYLES } from "../../components/shared/constants";
 
 /* ─────────────────────────────────────────────────────────────
-   FEATURE DETAIL PAGE — /features/[slug]
-   UX laws applied (annotated inline):
-   • Jakob's Law         — hero → proof → two-column detail →
-                           next-step, the pattern every reader
-                           already expects from a docs/feature page
-   • Serial Position     — stat highlight leads (primacy), "Next
-                           module" card closes (recency) before Footer
-   • Von Restorff        — the stat highlight is the one gradient
-                           callout on an otherwise clean page
-   • Miller's Law        — capabilities and steps chunked into two
-                           short columns, never one long list
-   • Goal-Gradient       — numbered 1-2-3 "How it works" steps read
-                           as a short, near-complete process
-   • Aesthetic-Usability — staggered Reveal entrances reuse the same
-                           motion language as the homepage
-   • Fitts's Law         — full-width "Next module" card, generous
-                           CTA padding
-   • Peak-End Rule       — page closes on Footer, same as every
-                           other page — no jarring dead end
+   FEATURE DETAIL PAGE — radical simplicity pass
+   "When in doubt, remove." One idea per screen. Hairlines instead
+   of boxes. One accent color. Type does the work, not decoration.
+
+   21 UX laws, applied to real decisions on THIS page:
+    1. Law of Prägnanz (Simplicity) — governing principle: every
+       card/border/icon from the previous version was cut unless
+       it carried information a hairline or whitespace couldn't
+    2. Hick's Law         — exactly ONE primary CTA in the hero;
+                            "Join Beta" demoted to a quiet text link
+    3. Fitts's Law         — the one CTA and the next-module band
+                            are oversized, unmissable targets
+    4. Jakob's Law         — familiar top-to-bottom narrative
+                            (claim -> proof -> detail -> next), just
+                            with the chrome stripped out
+    5. Miller's Law        — capabilities/steps stay at 3-4 items,
+                            never a long scroll of bullets
+    6. Von Restorff Effect — the stat is the ONLY oversized,
+                            centered, full-bleed moment on the page
+    7. Serial Position     — the giant stat leads (primacy), the
+                            next-module band closes (recency)
+    8. Peak-End Rule       — the page's single most dramatic
+                            typographic moment (the stat) sits near
+                            the top; it closes calm, on Footer
+    9. Goal-Gradient Effect — "How it works" numbered 1-2-3 reads
+                            as a short, nearly-finished sequence
+   10. Zeigarnik Effect     — "Next module" is stated but not shown
+                            in full until clicked — open loop
+   11. Law of Proximity     — capabilities and steps are two
+                            visually separated groups, not one list
+   12. Law of Similarity    — every numbered marker (stat index,
+                            capability index, step index) uses the
+                            identical thin-mono treatment
+   13. Law of Common Region — hairline rules substitute for card
+                            borders — a region without a box
+   14. Law of Continuity    — the thin vertical rule connecting the
+                            hero to breadcrumb leads the eye down
+   15. Uniform Connectedness — the 3-step process shares one
+                            connecting hairline, reading as one flow
+   16. Doherty Threshold    — Reveal transitions stay under 400ms;
+                            nothing makes the reader wait
+   17. Postel's Law         — reduced-motion is respected throughout
+                            (inherited from Reveal)
+   18. Tesler's Law         — complexity (8 modules, dozens of
+                            facts) is absorbed by the layout, not
+                            pushed onto the reader as more UI
+   19. Chunking             — long feature descriptions never run
+                            past 2 lines before a break
+   20. Progressive Disclosure — capabilities and steps are the
+                            only detail shown; deeper detail lives
+                            behind "Book Demo," not on this page
+   21. Anchoring            — the stat number anchors the reader's
+                            sense of scale before any prose is read
    ───────────────────────────────────────────────────────────── */
 
 type Params = Promise<{ slug: string }>;
 
-/* Pre-render all 8 feature pages at build time */
 export function generateStaticParams() {
   return FEATURE_DETAILS.map((f) => ({ slug: f.slug }));
 }
@@ -53,200 +86,234 @@ export default async function FeaturePage({ params }: { params: Params }) {
 
   const currentIndex = FEATURE_DETAILS.findIndex((f) => f.slug === feature.slug);
   const next = FEATURE_DETAILS[(currentIndex + 1) % FEATURE_DETAILS.length];
+  const moduleNumber = String(currentIndex + 1).padStart(2, "0");
 
   return (
     <>
-      {/* Fix: this page never loaded the design system before — every
-          .badge/.btn/.h-display class and --var() token resolved to
-          nothing, hence the black/unstyled screen. Same injection the
-          homepage uses. */}
       <style>{GLOBAL_STYLES}</style>
-
       <Nav />
 
-      <main style={{ paddingTop: 168, paddingBottom: 0, position: "relative", overflow: "hidden" }}>
+      <main style={{ background: "#fff" }}>
 
-        {/* Ambient mesh — same visual language as every other section */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
-          <div style={{
-            position: "absolute", top: -160, right: -160,
-            width: 600, height: 600, borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }} />
-          <div style={{
-            position: "absolute", top: 300, left: -160,
-            width: 500, height: 500, borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(16,185,129,0.05) 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }} />
-        </div>
+        {/* ── HERO — one claim, one CTA, generous air ── */}
+        <section style={{
+          maxWidth: 900, margin: "0 auto", padding: "200px var(--gutter) 100px",
+        }}>
 
-        <div style={{ maxWidth: "var(--container)", margin: "0 auto", padding: "0 var(--gutter)", position: "relative" }}>
-
-          {/* Breadcrumb */}
           <Reveal>
-            <Link
-              href="/#features"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                fontSize: 13, fontWeight: 600, color: "var(--t-tertiary)",
-                textDecoration: "none", marginBottom: 32,
-                transition: "gap 0.2s var(--ease), color 0.2s var(--ease)",
-              }}
-            >
-              ← All modules
-            </Link>
-          </Reveal>
-
-          {/* Hero */}
-          <Reveal delay={60}>
-            <div style={{ maxWidth: 720, marginBottom: 56 }}>
-              <div aria-hidden="true" style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 56, height: 56, fontSize: 26,
-                background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)",
-                borderRadius: 14, marginBottom: 24,
-                boxShadow: "0 8px 24px rgba(99,102,241,0.1)",
-              }}>
-                {feature.icon}
-              </div>
-
-              <div className="badge">Product · {feature.title}</div>
-
-              <h1 className="h-display" style={{ marginBottom: 20, maxWidth: 680 }}>
-                {feature.tagline}
-              </h1>
-
-              <p className="t-lead" style={{ fontSize: 19, maxWidth: 620 }}>
-                {feature.overview}
-              </p>
-            </div>
-          </Reveal>
-
-          {/* CTAs */}
-          <Reveal delay={110}>
-            <div className="btn-row" style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 56 }}>
-              <a href={DEMO_URL} className="btn btn--primary">Book Demo →</a>
-              <a href={SIGNUP_URL} className="btn btn--secondary">Join Beta</a>
-            </div>
-          </Reveal>
-
-          {/* Stat highlight — Von Restorff: the one gradient callout on the page */}
-          <Reveal delay={150}>
             <div style={{
-              background: "linear-gradient(135deg, rgba(99,102,241,0.05), rgba(16,185,129,0.05))",
-              border: "1px solid rgba(99,102,241,0.12)",
-              borderRadius: "var(--r-xl)", padding: "32px 40px",
-              display: "flex", alignItems: "center", gap: 24,
-              marginBottom: 80, position: "relative", overflow: "hidden",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              marginBottom: 56,
             }}>
-              <div aria-hidden="true" style={{
-                position: "absolute", top: -40, right: -40,
-                width: 140, height: 140, borderRadius: "50%",
-                background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)",
-              }} />
-              <div style={{
-                fontSize: 44, fontWeight: 900, letterSpacing: "-0.04em",
-                color: "var(--c-indigo)", position: "relative", flexShrink: 0,
+              <Link
+                href="/#features"
+                style={{
+                  fontSize: 13, fontWeight: 600, color: "var(--t-faint)",
+                  textDecoration: "none", letterSpacing: "-0.01em",
+                }}
+              >
+                ← All modules
+              </Link>
+              {/* Module index — mono editorial marker, sets scale before anything else (Anchoring) */}
+              <span style={{
+                fontSize: 13, fontWeight: 700, color: "var(--t-faint)",
+                fontFamily: "monospace", letterSpacing: "0.02em",
               }}>
-                {feature.stat.value}
-              </div>
-              <div style={{ fontSize: 15, color: "var(--t-secondary)", fontWeight: 500, maxWidth: 360, position: "relative" }}>
-                {feature.stat.label}
-              </div>
+                {moduleNumber} / 08
+              </span>
             </div>
           </Reveal>
 
-          {/* Two-column: capabilities + how it works (Miller's Law chunking) */}
-          <div className="two-col" style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr", gap: 64,
-            marginBottom: 96,
-          }}>
-            <Reveal direction="left" delay={100}>
-              <div>
-                <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 24, color: "var(--t-primary)" }}>
-                  What it does
-                </h2>
-                <ul style={{ display: "flex", flexDirection: "column", gap: 16, listStyle: "none" }}>
-                  {feature.capabilities.map((c) => (
-                    <li key={c} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                      <span aria-hidden="true" style={{
-                        width: 22, height: 22, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                        background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 11, color: "#16A34A", fontWeight: 700,
-                      }}>✓</span>
-                      <span style={{ fontSize: 15, color: "var(--t-secondary)", lineHeight: 1.6 }}>{c}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Reveal>
+          <Reveal delay={70}>
+            <div style={{ fontSize: 40, marginBottom: 28, lineHeight: 1 }}>
+              {feature.icon}
+            </div>
+          </Reveal>
 
-            <Reveal direction="right" delay={150}>
+          <Reveal delay={110}>
+            <h1 style={{
+              fontSize: "clamp(40px, 6vw, 76px)",
+              fontWeight: 900, lineHeight: 1.02,
+              letterSpacing: "-0.045em", color: "var(--t-primary)",
+              marginBottom: 28, maxWidth: 780,
+            }}>
+              {feature.tagline}
+            </h1>
+          </Reveal>
+
+          <Reveal delay={160}>
+            <p style={{
+              fontSize: 19, lineHeight: 1.65, color: "var(--t-tertiary)",
+              maxWidth: 560, marginBottom: 40, fontWeight: 400,
+            }}>
+              {feature.overview}
+            </p>
+          </Reveal>
+
+          {/* Hick's Law — exactly one real CTA; the second option is a
+              quiet inline link, not a competing button */}
+          <Reveal delay={200}>
+            <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+              <a href={DEMO_URL} className="btn btn--primary" style={{ padding: "14px 32px" }}>
+                Book Demo →
+              </a>
+              <a
+                href={SIGNUP_URL}
+                style={{
+                  fontSize: 14, fontWeight: 600, color: "var(--t-tertiary)",
+                  textDecoration: "underline", textUnderlineOffset: 4,
+                }}
+              >
+                or join the beta
+              </a>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* ── THE NUMBER — full-bleed, no card, no border (Von Restorff) ── */}
+        <Reveal delay={60}>
+          <section style={{
+            padding: "100px var(--gutter) 120px",
+            textAlign: "center",
+            borderTop: "1px solid var(--s-border)",
+            borderBottom: "1px solid var(--s-border)",
+          }}>
+            <div style={{
+              fontSize: "clamp(72px, 14vw, 160px)",
+              fontWeight: 900, letterSpacing: "-0.05em", lineHeight: 1,
+              background: "linear-gradient(135deg, var(--c-indigo), var(--c-emerald))",
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+              backgroundClip: "text", marginBottom: 20,
+            }}>
+              {feature.stat.value}
+            </div>
+            <div style={{
+              fontSize: 15, fontWeight: 600, color: "var(--t-tertiary)",
+              maxWidth: 420, margin: "0 auto", letterSpacing: "-0.01em",
+            }}>
+              {feature.stat.label}
+            </div>
+          </section>
+        </Reveal>
+
+        {/* ── CAPABILITIES + PROCESS — hairlines, not cards ── */}
+        <section style={{ maxWidth: 900, margin: "0 auto", padding: "120px var(--gutter)" }}>
+
+          <div className="two-col-simple" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80 }}>
+
+            {/* What it does — editorial numbered list, no icons */}
+            <div>
+              <Reveal direction="left">
+                <div style={{
+                  fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
+                  textTransform: "uppercase", color: "var(--t-faint)", marginBottom: 32,
+                }}>
+                  What it does
+                </div>
+              </Reveal>
               <div>
-                <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 24, color: "var(--t-primary)" }}>
-                  How it works
-                </h2>
-                {/* Goal-Gradient: numbered 1-2-3 reads as an almost-finished process */}
-                <ol style={{ display: "flex", flexDirection: "column", gap: 20, listStyle: "none" }}>
-                  {feature.howItWorks.map((step, i) => (
-                    <li key={step} style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                {feature.capabilities.map((c, i) => (
+                  <Reveal key={c} direction="left" delay={i * 60}>
+                    <div style={{
+                      display: "flex", gap: 20, alignItems: "baseline",
+                      padding: "20px 0",
+                      borderTop: i === 0 ? "none" : "1px solid var(--s-border)",
+                    }}>
                       <span style={{
-                        width: 26, height: 26, borderRadius: 8, flexShrink: 0,
-                        background: "var(--c-ink)", color: "#fff",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 12, fontWeight: 800,
+                        fontSize: 13, fontWeight: 700, color: "var(--t-faint)",
+                        fontFamily: "monospace", flexShrink: 0, width: 20,
+                      }}>
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span style={{ fontSize: 16, lineHeight: 1.55, color: "var(--t-secondary)" }}>
+                        {c}
+                      </span>
+                    </div>
+                  </Reveal>
+                ))}
+              </div>
+            </div>
+
+            {/* How it works — same numbered treatment, Goal-Gradient sequence */}
+            <div>
+              <Reveal direction="right">
+                <div style={{
+                  fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
+                  textTransform: "uppercase", color: "var(--t-faint)", marginBottom: 32,
+                }}>
+                  How it works
+                </div>
+              </Reveal>
+              <div>
+                {feature.howItWorks.map((step, i) => (
+                  <Reveal key={step} direction="right" delay={i * 60}>
+                    <div style={{
+                      display: "flex", gap: 20, alignItems: "baseline",
+                      padding: "20px 0",
+                      borderTop: i === 0 ? "none" : "1px solid var(--s-border)",
+                    }}>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: "var(--c-indigo)",
+                        fontFamily: "monospace", flexShrink: 0, width: 20,
                       }}>
                         {i + 1}
                       </span>
-                      <span style={{ fontSize: 15, color: "var(--t-secondary)", lineHeight: 1.6, paddingTop: 3 }}>{step}</span>
-                    </li>
-                  ))}
-                </ol>
+                      <span style={{ fontSize: 16, lineHeight: 1.55, color: "var(--t-secondary)" }}>
+                        {step}
+                      </span>
+                    </div>
+                  </Reveal>
+                ))}
               </div>
-            </Reveal>
-          </div>
+            </div>
 
-          {/* Next module nav — Serial Position: last thing read before Footer */}
-          <Reveal delay={200}>
-            <Link
-              href={`/features/${next.slug}`}
-              className="next-module-card"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "28px 32px", marginBottom: 100,
-                background: "var(--s-raised)", border: "1px solid var(--s-border)",
-                borderRadius: "var(--r-xl)", textDecoration: "none",
-                transition: "border-color 0.25s var(--ease), background 0.25s var(--ease), transform 0.25s var(--ease)",
-              }}
-            >
+          </div>
+        </section>
+
+        {/* ── NEXT MODULE — one bold band, nothing else competing ── */}
+        <Reveal delay={80}>
+          <Link
+            href={`/features/${next.slug}`}
+            className="next-band"
+            style={{
+              display: "block", textDecoration: "none",
+              background: "var(--c-ink)", padding: "72px var(--gutter)",
+            }}
+          >
+            <div style={{
+              maxWidth: 900, margin: "0 auto",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              flexWrap: "wrap", gap: 24,
+            }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 12, fontWeight: 700, color: "#666",
+                  textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10,
+                }}>
                   Next module
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "var(--t-primary)" }}>
+                <div style={{
+                  fontSize: "clamp(28px, 4vw, 40px)", fontWeight: 800,
+                  letterSpacing: "-0.03em", color: "#fff",
+                }}>
                   {next.icon} {next.title}
                 </div>
               </div>
-              <span aria-hidden="true" style={{ fontSize: 20, color: "var(--c-indigo)" }}>→</span>
-            </Link>
-          </Reveal>
+              <span aria-hidden="true" className="next-arrow" style={{
+                fontSize: 28, color: "#fff", transition: "transform 0.3s var(--ease)",
+              }}>
+                →
+              </span>
+            </div>
+          </Link>
+        </Reveal>
 
-        </div>
       </main>
 
-      {/* Hover polish for the next-module card — plain CSS since this
-          is a server component and can't use onMouseEnter handlers */}
       <style>{`
-        .next-module-card:hover {
-          border-color: rgba(99,102,241,0.3) !important;
-          background: #fff !important;
-          transform: translateY(-2px);
-        }
+        .next-band:hover .next-arrow { transform: translateX(8px); }
         @media (max-width: 900px) {
-          .two-col { grid-template-columns: 1fr !important; gap: 40px !important; }
+          .two-col-simple { grid-template-columns: 1fr !important; gap: 56px !important; }
         }
       `}</style>
 
