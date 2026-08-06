@@ -6,13 +6,16 @@ import Footer from "../../components/Footer";
 import { FEATURE_DETAILS, getFeatureBySlug } from "../../components/shared/feature-details";
 import { DEMO_URL, SIGNUP_URL } from "../../components/shared/constants";
 
+type Params = Promise<{ slug: string }>;
+
 /* Pre-render all 8 feature pages at build time */
 export function generateStaticParams() {
   return FEATURE_DETAILS.map((f) => ({ slug: f.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const feature = getFeatureBySlug(params.slug);
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { slug } = await params;
+  const feature = getFeatureBySlug(slug);
   if (!feature) return {};
   return {
     title: `${feature.title} — Situs Revenue`,
@@ -20,8 +23,9 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function FeaturePage({ params }: { params: { slug: string } }) {
-  const feature = getFeatureBySlug(params.slug);
+export default async function FeaturePage({ params }: { params: Params }) {
+  const { slug } = await params;
+  const feature = getFeatureBySlug(slug);
   if (!feature) notFound();
 
   const currentIndex = FEATURE_DETAILS.findIndex((f) => f.slug === feature.slug);
